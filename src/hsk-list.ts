@@ -1,3 +1,4 @@
+import { HSK1_EXAMPLES } from './hsk1-examples'
 import type { Word } from './types'
 
 type Row = [string, number, string, string, string, string]
@@ -5461,7 +5462,12 @@ const ROWS: Row[] = [
 ["hsk-L6-1140",6,"座谈会","zuò tán huì","круглый стол","сущ."],
 ]
 
-export const HSK_WORDS: Word[] = ROWS.map(([id, level, hanzi, pinyin, ru, pos]) => ({
-  id, topic: `hsk${level}`, hanzi, pinyin, ru, pos,
-  note: '', example: '', examplePy: '', exampleRu: '', uses: [], level, custom: false,
-}))
+const NO_EXAMPLE = ['', '', ''] as const
+
+export const HSK_WORDS: Word[] = ROWS.map(([id, level, hanzi, pinyin, ru, pos]) => {
+  const [example, examplePy, exampleRu] = level === 1 ? (HSK1_EXAMPLES[id] ?? NO_EXAMPLE) : NO_EXAMPLE
+  return {
+    id, topic: `hsk${level}`, hanzi, pinyin, ru, pos,
+    note: '', example, examplePy, exampleRu, uses: [], level, custom: false,
+  }
+})

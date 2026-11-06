@@ -3,12 +3,13 @@ import { alignHeard } from './pronounce'
 import { GRAMMAR, HSK } from './grammar'
 import { dictionaryQuery, parseBkrs } from '../server/bkrs'
 import { assertEdgeOpen, edgeCooling, edgeRate, noteEdgeFailure, noteEdgeSuccess } from '../server/edge-policy'
-import { analyze, searchKey, syllableAt } from './pinyin'
+import { analyze, searchKey, syllableAt, syllables } from './pinyin'
 import { judge, prettifyPinyin } from './pinyin'
+import { canQuiz } from './quiz'
 import { applyGrade, getP, planGrade, selectedWords, today } from './srs'
 import { HSK_WORDS } from './hsk-list'
 import { SEED, TOPICS } from './seed'
-import { freshState } from './store'
+import { adoptRaw, freshState, state as deck } from './store'
 
 const expect = (name: string, got: unknown, want: unknown) => {
   if (got !== want) {
@@ -191,7 +192,66 @@ expect('answer 3', ruNoun(3, 'ответ', 'ответа', 'ответов'), '�
 expect('answer 11', ruNoun(11, 'ответ', 'ответа', 'ответов'), 'ответов')
 const hskOnly = freshState()
 hskOnly.lv = ['hsk1']
-expect('hsk1 examples', selectedWords(hskOnly).filter(word => word.example).length, 0)
+expect('hsk1 examples', selectedWords(hskOnly).filter(word => word.example && word.exampleRu && word.examplePy).length, 500)
+expect('hsk above 1 examples', HSK_WORDS.filter(word => word.level > 1 && word.example).length, 0)
+const seenRu = new Map<string, string>()
+for (const word of HSK_WORDS) {
+  if (word.level !== 1) continue
+  expect(`${word.id} study`, studyExample(word.hanzi, word.example), true)
+  expect(`${word.id} ru`, word.exampleRu.length > 1, true)
+  const blank = clozeText(word.example, word.hanzi)
+  expect(`${word.id} cloze`, blank.includes('____'), true)
+  const got = syllables(word.examplePy)
+  const want = syllables(word.pinyin)
+  let at = -1
+  for (let i = 0; i + want.length <= got.length; i++) {
+    const same = want.every((syl, k) => {
+      const item = got[i + k]
+      return item?.base === syl.base && (item.tone === syl.tone || syl.base === 'yi' || syl.base === 'bu')
+    })
+    if (same) { at = i; break }
+  }
+  expect(`${word.id} reading in ${word.examplePy}`, at >= 0, true)
+  const han = [...word.example].filter(ch => /\p{Script=Han}/u.test(ch)).length
+  const er = [...word.example].filter(ch => ch === '儿').length
+  expect(`${word.id} syllables`, got.length <= han && got.length >= han - er && got.length > 0, true)
+  const prior = seenRu.get(word.exampleRu)
+  expect(`${word.id} unique ru ${word.exampleRu}`, prior || '', '')
+  seenRu.set(word.exampleRu, word.id)
+  const hit = word.example.indexOf(word.hanzi)
+  for (const other of HSK_WORDS) {
+    if (other.level !== 1 || other.hanzi.length <= word.hanzi.length || !other.hanzi.includes(word.hanzi)) continue
+    const place = word.example.indexOf(other.hanzi)
+    if (place >= 0 && place <= hit && place + other.hanzi.length >= hit + word.hanzi.length) {
+      expect(`${word.id} inside ${other.hanzi}`, false, true)
+    }
+  }
+}
+const keptLv = deck.lv.slice()
+deck.lv = ['hsk1']
+expect('hsk1 phrase quiz', canQuiz('sent'), true)
+expect('hsk1 cloze quiz', canQuiz('cloze'), true)
+expect('hsk1 say quiz', canQuiz('say'), true)
+deck.lv = ['hsk2']
+expect('hsk2 phrase waits', canQuiz('sent'), false)
+deck.lv = keptLv
+adoptRaw({
+  v: 1,
+  words: [{
+    id: 'hsk-L1-0001', topic: 'hsk1', hanzi: '爱', pinyin: 'ài', ru: 'любить', pos: 'гл.',
+    note: '', example: '', examplePy: '', exampleRu: '', uses: [], level: 1, custom: false,
+  }],
+})
+const merged = deck.words.find(word => word.id === 'hsk-L1-0001')
+expect('merge fills example', !!merged && merged.example.includes('爱') && merged.exampleRu.length > 0 && merged.examplePy.length > 0, true)
+adoptRaw({
+  v: 1,
+  words: [{
+    id: 'hsk-L1-0001', topic: 'hsk1', hanzi: '爱', pinyin: 'ài', ru: 'любить', pos: 'гл.',
+    note: '', example: '我爱茶。', examplePy: 'wǒ ài chá.', exampleRu: 'Я люблю чай.', uses: [], level: 1, custom: true,
+  }],
+})
+expect('custom example stays', deck.words.find(word => word.id === 'hsk-L1-0001')?.example, '我爱茶。')
 const greetOnly = freshState()
 expect('greet examples', selectedWords(greetOnly).filter(word => word.example && word.exampleRu).length >= 4, true)
 expect('rate slow', edgeRate(0.8), '-25%')
