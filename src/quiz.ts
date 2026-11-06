@@ -9,6 +9,7 @@ export function quizBlurb(kind: QuizKind): string {
   if (kind === 'sent') return 'Звучит пример, нужно выбрать перевод. Десять вопросов.'
   if (kind === 'cloze') return 'В примере пропущено слово. Нужно выбрать иероглифы.'
   if (kind === 'gram') return 'Десять правил выбранных уровней HSK. Прогресс слов при этом не меняется.'
+  if (kind === 'say') return 'Слушаете пример и повторяете его. Десять фраз только из выбранных списков.'
   if (kind === 'speed') return `Минута на иероглиф и перевод. Ошибка отнимает 3 секунды. Рекорд: ${state.rec}.`
   return 'Десять вопросов. Ответ двигает прогресс слова.'
 }
@@ -19,7 +20,7 @@ function withExample(list: Word[], cloze: boolean): Word[] {
 
 export function quizWords(kind: QuizKind): Word[] {
   const selected = selectedWords(state)
-  if (kind === 'cloze' || kind === 'sent') return withExample(selected, kind === 'cloze')
+  if (kind === 'cloze' || kind === 'sent' || kind === 'say') return withExample(selected, kind === 'cloze')
   return selected.length >= 4 ? selected : state.words
 }
 
@@ -69,6 +70,13 @@ export function makeQuiz(kind: QuizKind): QuizSess | null {
         }
       }),
     }
+  }
+  if (kind === 'say') {
+    const words = quizWords(kind)
+    const picked: Word[] = []
+    while (picked.length < 10) picked.push(...shuffle(words))
+    picked.length = 10
+    return { kind, i: 0, ok: 0, bad: [], until: 0, items: picked.map(word => ({ id: word.id, pick: null, opts: [] })) }
   }
   const words = quizWords(kind)
   const count = kind === 'speed' ? 40 : 10

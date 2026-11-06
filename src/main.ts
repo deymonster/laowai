@@ -10,7 +10,8 @@ import { mountStroke, replayStroke, stepStroke } from './strokes'
 import { applyGrade, applyResult, buildQueue, findWord, selectedWords, shuffle } from './srs'
 import { adoptRaw, load, resetState, save, state } from './store'
 import type { Word } from './types'
-import { dictHitHtml, editorFromWord, listResults, readingExtras, renderApp, writeGlossInner } from './view'
+import { gramListHtml, dictHitHtml, editorFromWord, listResults, readingExtras, renderApp, writeGlossInner } from './view'
+import { listenOnce, stopListen } from './pronounce'
 
 let toastTimer = 0
 let wordToken = 0
@@ -142,7 +143,7 @@ function warmVisible() {
   if (ui.view === 'quiz' && quiz && quiz.i < quiz.items.length) {
     const word = findWord(state, quiz.items[quiz.i].id)
     if (word) {
-      if (quiz.kind === 'sent') warm(word.example, word.examplePy)
+      if (quiz.kind === 'sent' || quiz.kind === 'say') warm(word.example, word.examplePy)
       else if (quiz.kind !== 'gram') warm(word.hanzi, word.pinyin)
     }
   }
@@ -371,6 +372,12 @@ function bindLive() {
     ui.listExtra = 0
     const box = document.getElementById('results')
     if (box) box.innerHTML = listResults()
+  })
+  const gfind = document.getElementById('gfind') as HTMLInputElement | null
+  gfind?.addEventListener('input', () => {
+    ui.gramQ = gfind.value
+    const box = document.getElementById('grules')
+    if (box) box.innerHTML = gramListHtml()
   })
   const han = document.getElementById('f-han') as HTMLInputElement | null
   const example = document.getElementById('f-ex') as HTMLInputElement | null
@@ -757,7 +764,7 @@ async function act(name: string, el: HTMLElement) {
     case 'qagain': startQuiz(ui.quizKind); return
     case 'qpick': {
       const quiz = ui.quiz
-      if (!quiz) return
+      if (!quiz || quiz.kind === 'say') return
       const item = quiz.items[quiz.i]
       if (!item || item.pick != null) return
       item.pick = Number(el.dataset.k)
@@ -780,12 +787,53 @@ async function act(name: string, el: HTMLElement) {
       persist(); break
     }
     case 'qnext': {
+      stopListen()
       if (ui.quiz) ui.quiz.i += 1
       draw()
       speakQuizItem()
       return
     }
-    case 'qstop': ui.quiz = null; break
+    case 'qstop': stopListen(); ui.quiz = null; break
+    case 'sayrec': {
+      const quiz = ui.quiz
+      const item = quiz?.items[quiz.i]
+      const word = item ? findWord(state, item.id) : undefined
+      if (!quiz || quiz.kind !== 'say' || !item || !word || item.mark) return
+      listenOnce(word.example, result => {
+        if (ui.quiz !== quiz || quiz.items[quiz.i] !== item) return
+        item.heard = result.heard
+        item.mark = result.ok ? 'ok' : 'off'
+        item.pick = result.ok ? 1 : 0
+        if (result.ok) quiz.ok += 1
+        else quiz.bad.push(item.id)
+        draw()
+      }, message => toast(message))
+      return
+    }
+    case 'saymark': {
+      const quiz = ui.quiz
+      const item = quiz?.items[quiz.i]
+      const word = item ? findWord(state, item.id) : undefined
+      if (!quiz || quiz.kind !== 'say' || !item || !word || item.mark) return
+      if (el.dataset.v === 'miss') { void speak(word.example, word.examplePy); return }
+      item.mark = 'skip'
+      item.pick = 0
+      draw()
+      return
+    }
+    case 'sgrade': {
+      const grade = el.dataset.g
+      const text = ui.writeText.trim()
+      const chars = hanChars(text)
+      const word = chars.length && ui.writeCi === chars.length - 1 ? selectedWords(state).find(item => item.hanzi === text) : undefined
+      if (!word || (grade !== 'again' && grade !== 'hard' && grade !== 'good' && grade !== 'easy')) return
+      applyGrade(state, word.id, grade)
+      save()
+      const host = document.getElementById('strokeGrade')
+      if (host) host.innerHTML = '<p class="muted">Оценка записана.</p>'
+      toast('Оценка записана')
+      return
+    }
     case 'wmode': ui.writeMode = el.dataset.v === 'type' ? 'type' : 'stroke'; ui.type = null; break
     case 'wchar': ui.writeCi = Number(el.dataset.i) || 0; break
     case 'wpick': ui.writeText = el.dataset.h || ''; ui.writeCi = 0; break
@@ -886,6 +934,8 @@ async function act(name: string, el: HTMLElement) {
     case 'gram': {
       const id = el.dataset.id || ''
       if (!id) return
+      const level = Number(el.dataset.lv)
+      if (level >= 1 && level <= 6) ui.gramOpen = level
       state.gram = state.gram.includes(id) ? state.gram.filter(item => item !== id) : state.gram.concat(id)
       persist(); break
     }
@@ -926,7 +976,7 @@ document.addEventListener('keydown', event => {
       if (word) void speak(word.hanzi, word.pinyin)
     }
   }
-  if (ui.view === 'quiz' && ui.quiz && ui.quiz.i < ui.quiz.items.length && ui.quiz.items[ui.quiz.i].pick == null) {
+  if (ui.view === 'quiz' && ui.quiz && ui.quiz.kind !== 'say' && ui.quiz.i < ui.quiz.items.length && ui.quiz.items[ui.quiz.i].pick == null) {
     const index = Number(event.key) - 1
     if (index >= 0 && index <= 3) void act('qpick', btn(String(index), 'k'))
   }

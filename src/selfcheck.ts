@@ -1,4 +1,5 @@
 import { cleanGloss, clozeText, exampleFits, ruNoun, studyExample } from './han'
+import { alignHeard } from './pronounce'
 import { GRAMMAR, HSK } from './grammar'
 import { dictionaryQuery, parseBkrs } from '../server/bkrs'
 import { assertEdgeOpen, edgeCooling, edgeRate, noteEdgeFailure, noteEdgeSuccess } from '../server/edge-policy'
@@ -208,6 +209,15 @@ expect('edge skips while cooling', edgeMessage, 'cooling')
 noteEdgeSuccess()
 expect('edge open again', edgeCooling(), false)
 assertEdgeOpen()
+const same = alignHeard('我喝茶。', '我喝茶')
+expect('align same', same.every(piece => !piece.bad) && same.map(piece => piece.text).join(''), true && '我喝茶')
+const swapped = alignHeard('我喝茶', '我吃茶')
+expect('align swap', swapped.map(piece => piece.text).join(''), '我吃茶')
+expect('align swap mark', swapped[1]?.bad, true)
+expect('align gap', alignHeard('我喝茶', '我茶').some(piece => piece.text === '·'), true)
+expect('hsk4 fuller', GRAMMAR.filter(rule => rule.level === 4).length >= 16, true)
+expect('hsk5 fuller', GRAMMAR.filter(rule => rule.level === 5).length >= 16, true)
+expect('hsk6 fuller', GRAMMAR.filter(rule => rule.level === 6).length >= 16, true)
 
 if (process.exitCode) console.error('selfcheck failed')
 else console.log('selfcheck ok')

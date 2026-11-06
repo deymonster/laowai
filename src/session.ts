@@ -2,7 +2,7 @@ import type { DictHit } from './dict'
 import type { Reading } from './pinyin'
 
 export type ViewName = 'study' | 'quiz' | 'gram' | 'list' | 'write' | 'prog' | 'edit' | 'set'
-export type QuizKind = 'h2r' | 'r2h' | 'h2p' | 'aud' | 'sent' | 'cloze' | 'gram' | 'speed'
+export type QuizKind = 'h2r' | 'r2h' | 'h2p' | 'aud' | 'sent' | 'cloze' | 'gram' | 'speed' | 'say'
 
 export type Editor = {
   id: string | null
@@ -41,7 +41,7 @@ export type StudySess = {
   show: boolean
 }
 
-export type QuizItem = { id: string; opts: { text: string; ok: boolean }[]; pick: number | null }
+export type QuizItem = { id: string; opts: { text: string; ok: boolean }[]; pick: number | null; heard?: string; mark?: 'ok' | 'off' | 'skip' }
 export type QuizSess = { kind: QuizKind; items: QuizItem[]; i: number; ok: number; bad: string[]; until: number }
 export type TypeSess = { mode: 'py' | 'hz'; ids: string[]; i: number; ok: number; bad: string[]; res: { r: string; val: string } | null }
 
@@ -59,6 +59,8 @@ export const ui = {
   study: null as StudySess | null,
   quiz: null as QuizSess | null,
   quizKind: 'h2r' as QuizKind,
+  gramQ: '',
+  gramOpen: 1,
   writeMode: 'stroke' as 'stroke' | 'type',
   writeText: '永',
   writeCi: 0,

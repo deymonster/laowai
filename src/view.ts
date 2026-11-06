@@ -1,9 +1,10 @@
 import { ACH } from './achieve'
 import { GRAMMAR, HSK } from './grammar'
 import { clozeText, esc, hanChars, ruNoun } from './han'
+import { alignHeard, pronounceSupport } from './pronounce'
 import { canQuiz, quizBlurb } from './quiz'
 import { compose, pyHTML, searchKey, toneOf, type Reading } from './pinyin'
-import { blankEditor, ui, type Editor } from './session'
+import { blankEditor, ui, type Editor, type QuizItem } from './session'
 import { findWord, getP, inTopic, selectedWords, statusOf, streak, today, topicCount, buildQueue, dueLabel, nextDue, type Grade } from './srs'
 import { RATES, state } from './store'
 import type { Word } from './types'
@@ -167,11 +168,11 @@ function goal(): string {
 }
 
 function quizView(): string {
-  const kinds: [typeof ui.quizKind, string][] = [['h2r', 'Иероглиф → перевод'], ['r2h', 'Перевод → иероглиф'], ['h2p', 'Иероглиф → пиньинь'], ['aud', 'На слух'], ['sent', 'Фраза'], ['cloze', 'Пропуск'], ['gram', 'Правило'], ['speed', 'На скорость']]
+  const kinds: [typeof ui.quizKind, string][] = [['h2r', 'Иероглиф → перевод'], ['r2h', 'Перевод → иероглиф'], ['h2p', 'Иероглиф → пиньинь'], ['aud', 'На слух'], ['sent', 'Фраза'], ['cloze', 'Пропуск'], ['say', 'Произношение'], ['gram', 'Правило'], ['speed', 'На скорость']]
   if (!ui.quiz) {
     const can = canQuiz(ui.quizKind)
     const start = ui.quizKind === 'speed' ? 'Старт · 60 секунд' : 'Начать тест'
-    const lack = ui.quizKind === 'sent' || ui.quizKind === 'cloze'
+    const lack = ui.quizKind === 'sent' || ui.quizKind === 'cloze' || ui.quizKind === 'say'
       ? 'В выбранных списках мало примеров. Другие списки в этот тест не попадают.'
       : 'Для этого режима пока мало слов. Выберите другие списки или другой тест.'
     return `<section class="card"><h2>Тест</h2>${seg(kinds, ui.quizKind, 'qkind')}<p class="muted">${esc(quizBlurb(ui.quizKind))}</p>${can ? '' : `<p class="muted">${lack}</p>`}<button type="button" class="btn primary block" data-act="qstart"${can ? '' : ' disabled'}>${start}</button></section>`
@@ -187,7 +188,7 @@ function quizView(): string {
   const rule = GRAMMAR.find(entry => entry.id === item.id)
   if (!word && !rule) return ''
   const done = item.pick != null
-  const prompt = quiz.kind === 'gram' && rule ? `<div class="hz" lang="zh-Hans">${esc(rule.example)}</div><div class="py">${esc(rule.examplePy)}</div><p class="muted center">Что означает пример?</p>`
+  const prompt = quiz.kind === 'gram' && rule ? `<div class="hz" lang="zh-Hans">${esc(rule.example)}</div><div class="py">${shownPy(rule.examplePy)}</div><p class="muted center">Что означает пример?</p>`
     : !word ? ''
     : quiz.kind === 'r2h' ? `<div class="ru">${esc(word.ru)}</div>`
     : quiz.kind === 'cloze' ? `<div class="hz" lang="zh-Hans">${esc(clozeText(word.example, word.hanzi))}</div><p class="muted center">${esc(word.exampleRu)}</p>`
@@ -197,28 +198,86 @@ function quizView(): string {
   const hanOpt = quiz.kind === 'r2h' || quiz.kind === 'aud' || quiz.kind === 'cloze'
   const opts = item.opts.map((opt, index) => {
     const cls = done ? opt.ok ? 'ok' : index === item.pick ? 'no' : '' : ''
-    const inner = quiz.kind === 'h2p' ? `<span class="py">${esc(opt.text)}</span>` : hanOpt ? `<span lang="zh-Hans">${esc(opt.text)}</span>` : esc(opt.text)
+    const inner = quiz.kind === 'h2p' ? `<span class="py">${shownPy(opt.text)}</span>` : hanOpt ? `<span lang="zh-Hans">${esc(opt.text)}</span>` : esc(opt.text)
     return `<button type="button" class="opt ${cls}" data-act="qpick" data-k="${index}"${done ? ' disabled' : ''}><span>${index + 1}</span>${inner}</button>`
   }).join('')
-  const answer = word ? `${esc(word.hanzi)} · ${esc(word.pinyin)} · ${esc(word.ru)}` : rule ? `${esc(rule.example)} — ${esc(rule.exampleRu)}` : ''
+  if (quiz.kind === 'say' && word) return sayCard(word, item)
+  const answer = word ? `${toneHan(word.hanzi, word.pinyin)} · ${shownPy(word.pinyin)} · ${esc(word.ru)}` : rule ? `${esc(rule.example)} — ${esc(rule.exampleRu)}` : ''
   const after = done && quiz.kind !== 'speed' ? `<div class="answer">${answer}</div><button type="button" class="btn primary block" data-act="qnext">${quiz.i + 1 >= quiz.items.length ? 'Результат' : 'Дальше'}</button>` : ''
   const clock = quiz.kind === 'speed' ? `<b class="qclock" id="qclock">${Math.max(0, Math.ceil((quiz.until - Date.now()) / 1000))} с</b>` : ''
   const listen = word && quiz.kind !== 'aud' && quiz.kind !== 'sent' && quiz.kind !== 'gram' ? speakBtn(word.hanzi, 'Произнести', word.pinyin) : ''
   return `<section class="card"><div class="rowtop"><span class="tag">${quiz.kind === 'speed' ? `Счёт ${quiz.ok}` : `Вопрос ${quiz.i + 1} / ${quiz.items.length}`}</span>${clock}${listen}</div><div class="q">${prompt}</div><div class="opts">${opts}</div>${after}</section><p class="center"><button type="button" class="btn tiny" data-act="qstop">Выйти</button></p>`
 }
 
+function toneHan(hanzi: string, pinyin: string): string {
+  const plain = `<span lang="zh-Hans">${esc(hanzi)}</span>`
+  if (state.settings.tc < 2) return plain
+  const hans = hanChars(hanzi)
+  const syl = pinyin.split(/\s+/).filter(Boolean)
+  if (syl.length !== hans.length) return plain
+  let index = 0
+  return [...hanzi].map(ch => {
+    if (!/\p{Script=Han}/u.test(ch)) return esc(ch)
+    const tone = toneOf(syl[index++] || '')
+    return `<span class="t${tone}" lang="zh-Hans">${esc(ch)}</span>`
+  }).join('')
+}
+
+function diffHtml(target: string, heard: string): string {
+  return alignHeard(target, heard).map(piece => piece.bad ? `<span class="miss">${esc(piece.text)}</span>` : esc(piece.text)).join('')
+}
+
+function sayCard(word: Word, item: QuizItem): string {
+  const support = pronounceSupport()
+  const done = item.mark != null
+  const note = support === 'none'
+    ? 'В этом браузере нет распознавания речи. Можно послушать и отметить самому.'
+    : support === 'webkit'
+      ? 'Запись уходит в распознавание браузера. В Safari китайская речь часто обрывается.'
+      : 'Запись уходит в распознавание браузера. В Chrome это сервис Google.'
+  const heard = item.mark === 'ok' || item.mark === 'off' ? `<p class="heard" lang="zh-Hans">${diffHtml(word.example, item.heard || '')}</p>` : ''
+  const phrase = done ? `<p class="muted">Фраза: <span lang="zh-Hans">${esc(word.example)}</span></p><div class="py">${shownPy(word.examplePy)}</div><p>${esc(word.exampleRu)}</p>` : ''
+  const verdict = item.mark === 'ok' ? '<p>Совпало.</p>' : item.mark === 'off' ? '<p>Есть расхождения.</p>' : item.mark === 'skip' ? '<p>Без проверки микрофоном.</p>' : ''
+  const mic = support !== 'none' && !done ? '<button type="button" class="btn" data-act="sayrec">Повторить</button>' : ''
+  const self = support === 'none' && !done ? '<div class="grades"><button type="button" data-act="saymark" data-v="hear">Слышу</button><button type="button" data-act="saymark" data-v="miss">Не слышу</button></div>' : ''
+  const last = ui.quiz ? ui.quiz.i + 1 >= ui.quiz.items.length : false
+  const next = done ? `<button type="button" class="btn primary block" data-act="qnext">${last ? 'Результат' : 'Дальше'}</button>` : ''
+  const place = ui.quiz ? `${ui.quiz.i + 1} / ${ui.quiz.items.length}` : ''
+  return `<section class="card"><div class="rowtop"><span class="tag">Фраза ${place}</span></div><div class="q">${speakBtn(word.example, 'Прослушать', word.examplePy)}<p class="muted center">Прослушайте и повторите пример.</p><p class="hint">${esc(note)}</p><div class="acts center">${mic}</div>${self}${heard}${verdict}${phrase}${next}</div></section><p class="center"><button type="button" class="btn tiny" data-act="qstop">Выйти</button></p>`
+}
+
+function ruleMatches(rule: (typeof GRAMMAR)[number], query: string): boolean {
+  const needle = query.trim()
+  if (!needle) return true
+  const more = (rule.more || []).map(item => `${item.hanzi} ${item.py} ${item.ru}`).join(' ')
+  const blob = `${rule.title} ${rule.pattern || ''} ${rule.rule} ${rule.example} ${rule.examplePy} ${rule.exampleRu} ${more}`
+  return searchKey(blob).includes(searchKey(needle)) || blob.toLowerCase().includes(needle.toLowerCase())
+}
+
+function ruleCard(rule: (typeof GRAMMAR)[number]): string {
+  const on = state.gram.includes(rule.id)
+  const extra = (rule.more || []).map(item => `<span lang="zh-Hans">${esc(item.hanzi)}</span><span class="py">${shownPy(item.py)}</span><small>${esc(item.ru)}</small>`).join('')
+  return `<div class="ruleline"><button type="button" class="rule${on ? ' on' : ''}" data-act="gram" data-id="${esc(rule.id)}" data-lv="${rule.level}" aria-pressed="${on}"><b>${esc(rule.pattern || rule.title)}</b><span>${esc(rule.rule)}</span><span lang="zh-Hans">${esc(rule.example)}</span><span class="py">${shownPy(rule.examplePy)}</span><small>${esc(rule.exampleRu)}</small>${extra}</button>${speakBtn(rule.example, 'Произнести пример', rule.examplePy)}</div>`
+}
+
+export function gramListHtml(): string {
+  const query = ui.gramQ.trim()
+  const shown = HSK.filter(level => state.hsk.includes(level))
+  const body = shown.map(level => {
+    const items = GRAMMAR.filter(rule => rule.level === level && ruleMatches(rule, query))
+    if (!items.length) return ''
+    const open = !!query || level === 1 || level === ui.gramOpen
+    return `<details class="glevel"${open ? ' open' : ''}><summary>HSK ${level}</summary>${items.map(ruleCard).join('')}</details>`
+  }).join('')
+  return body || '<p class="muted">Ничего не найдено.</p>'
+}
+
 function gramView(): string {
   const shown = HSK.filter(level => state.hsk.includes(level))
   const rules = GRAMMAR.filter(rule => shown.includes(rule.level))
   const done = rules.filter(rule => state.gram.includes(rule.id)).length
-  const body = shown.map(level => {
-    const items = GRAMMAR.filter(rule => rule.level === level).map(rule => {
-      const on = state.gram.includes(rule.id)
-      return `<button type="button" class="rule${on ? ' on' : ''}" data-act="gram" data-id="${esc(rule.id)}" aria-pressed="${on}"><b>${esc(rule.title)}</b><span>${esc(rule.rule)}</span><span lang="zh-Hans">${esc(rule.example)}</span><span class="py">${esc(rule.examplePy)}</span><small>${esc(rule.exampleRu)}</small></button>`
-    }).join('')
-    return `<h3 class="band">HSK ${level}</h3>${items}`
-  }).join('')
-  return `<section class="card"><h2>Грамматика</h2><p class="muted">Правила по ступеням HSK. Нажмите правило, если оно уже понятно. В тест попадают включённые уровни. ${done} из ${rules.length}.</p>${body || '<p class="muted">Включите хотя бы один уровень.</p>'}</section>`
+  const empty = shown.length ? '' : '<p class="muted">Включите хотя бы один уровень.</p>'
+  return `<section class="card"><h2>Грамматика</h2><p class="muted">Правила по ступеням HSK. Нажмите правило, если оно уже понятно. В тест попадают включённые уровни. ${done} из ${rules.length}.</p><label class="field">Найти правило<input id="gfind" value="${esc(ui.gramQ)}" placeholder="название, пример или 虽然" aria-label="Найти правило" autocomplete="off"></label><div id="grules">${empty || gramListHtml()}</div></section>`
 }
 
 function mistakes(ids: string[]): string {
@@ -361,7 +420,7 @@ function strokeView(): string {
   const chars = hanChars(ui.writeText).slice(0, 8)
   const chips = chars.map((ch, index) => `<button type="button" class="chip hz${index === ui.writeCi ? ' on' : ''}" data-act="wchar" data-i="${index}" lang="zh-Hans">${esc(ch)}</button>`).join('')
   const picks = writePicks()
-  return `<section class="card"><h2>Порядок черт</h2><details><summary>Правила написания</summary><ol class="rules"><li>Сверху вниз.</li><li>Слева направо.</li><li>Горизонталь раньше вертикали, если они пересекаются.</li><li>Сначала левая и верхняя стороны рамки, потом содержимое, рамку закрывают в конце.</li><li>У симметричного знака сначала середина.</li><li>Точка справа и мелкие черты чаще в конце.</li></ol><p class="muted">Ввод пиньиня: тоны цифрами, <b>ni3 hao3</b>. Буква <b>ü</b> вводится как <b>v</b>.</p></details><div class="search"><input id="wtxt" lang="zh-Hans" value="${esc(ui.writeText)}" placeholder="Иероглиф или слово" aria-label="Иероглиф" autocomplete="off"></div><div class="topics" id="wchars">${chips}</div><div class="gloss" id="wgloss">${writeGlossInner()}</div>${seg([['watch', 'Смотреть'], ['quiz', 'Обводить']], ui.strokePlay, 'smode')}<div id="writer" class="writer"></div><p class="muted center" id="strokeMsg">${esc(ui.strokeMsg)}</p><div class="acts center">${ui.strokePlay === 'watch' ? `<button type="button" class="btn" data-act="wplay">Показать</button><button type="button" class="btn" data-act="wstep">По одной черте</button><button type="button" class="btn" data-act="wslow" aria-pressed="${ui.strokeSlow}">Медленно${ui.strokeSlow ? ' ✓' : ''}</button><button type="button" class="btn" data-act="wreset">Сначала</button>` : '<button type="button" class="btn" data-act="wplay">Начать обводку</button>'}</div>${picks}</section>`
+  return `<section class="card"><h2>Порядок черт</h2><details><summary>Правила написания</summary><ol class="rules"><li>Сверху вниз.</li><li>Слева направо.</li><li>Горизонталь раньше вертикали, если они пересекаются.</li><li>Сначала левая и верхняя стороны рамки, потом содержимое, рамку закрывают в конце.</li><li>У симметричного знака сначала середина.</li><li>Точка справа и мелкие черты чаще в конце.</li></ol><p class="muted">Ввод пиньиня: тоны цифрами, <b>ni3 hao3</b>. Буква <b>ü</b> вводится как <b>v</b>.</p></details><div class="search"><input id="wtxt" lang="zh-Hans" value="${esc(ui.writeText)}" placeholder="Иероглиф или слово" aria-label="Иероглиф" autocomplete="off"></div><div class="topics" id="wchars">${chips}</div><div class="gloss" id="wgloss">${writeGlossInner()}</div>${seg([['watch', 'Смотреть'], ['quiz', 'Обводить']], ui.strokePlay, 'smode')}<div id="writer" class="writer"></div><p class="muted center" id="strokeMsg">${esc(ui.strokeMsg)}</p><div id="strokeGrade"></div><div class="acts center">${ui.strokePlay === 'watch' ? `<button type="button" class="btn" data-act="wplay">Показать</button><button type="button" class="btn" data-act="wstep">По одной черте</button><button type="button" class="btn" data-act="wslow" aria-pressed="${ui.strokeSlow}">Медленно${ui.strokeSlow ? ' ✓' : ''}</button><button type="button" class="btn" data-act="wreset">Сначала</button>` : '<button type="button" class="btn" data-act="wplay">Начать обводку</button>'}</div>${picks}</section>`
 }
 
 function typeView(): string {

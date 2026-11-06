@@ -220,6 +220,12 @@ textarea { min-height: 72px; resize: vertical; }
 .rule b, .rule span, .rule small { display: block; }
 .rule small { color: var(--muted); }
 .rule.on { background: color-mix(in srgb, var(--good) 10%, transparent); }
+.ruleline { display: flex; align-items: flex-start; gap: 8px; }
+.ruleline .rule { flex: 1; }
+.glevel { margin-top: 12px; }
+.glevel summary { cursor: pointer; font-weight: 650; }
+.miss { color: var(--bad); }
+.heard { font-size: 28px; line-height: 1.3; }
 .center { text-align: center; }
 .answer, .confirm { display: grid; gap: 6px; margin-top: 10px; }
 .warn { color: var(--t3); min-height: 1.2em; }

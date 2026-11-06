@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "hanzi-writer": "^3.7.2",
+    "hanzi-writer-data": "^2.0.1",
     "node-edge-tts": "^1.2.12",
     "pinyin-pro": "^3.27.0"
   },

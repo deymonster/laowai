@@ -1,6 +1,10 @@
+import { UPPER } from './grammar-upper'
+
 export const HSK = [1, 2, 3, 4, 5, 6] as const
 
 export type HskLevel = (typeof HSK)[number]
+
+export type Sample = { hanzi: string; py: string; ru: string }
 
 export type Rule = {
   id: string
@@ -10,6 +14,9 @@ export type Rule = {
   example: string
   examplePy: string
   exampleRu: string
+  pattern?: string
+  group?: string
+  more?: Sample[]
 }
 
 export const GRAMMAR: Rule[] = [
@@ -99,4 +106,5 @@ export const GRAMMAR: Rule[] = [
   { id: 'regard', level: 6, title: '以…为…', rule: '以…为… назначает роль: принимать что-то за что-то. Здесь 为 читается wéi.', example: '我们以茶为礼。', examplePy: 'wǒ men yǐ chá wéi lǐ.', exampleRu: 'У нас чай — это знак внимания.' },
   { id: 'along', level: 6, title: '随着', rule: '随着 ставит перемену, вместе с которой меняется и остальное.', example: '随着练习，发音好了。', examplePy: 'suí zhe liàn xí, fā yīn hǎo le.', exampleRu: 'По мере практики произношение стало лучше.' },
   { id: 'surprise', level: 6, title: '竟然', rule: '竟然 отмечает неожиданный, трудно поверимый факт.', example: '他竟然不认识老师。', examplePy: 'tā jìng rán bú rèn shi lǎo shī.', exampleRu: 'Он, представьте, не знает учителя.' },
+  ...UPPER,
 ]
