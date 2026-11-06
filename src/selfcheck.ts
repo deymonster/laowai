@@ -193,37 +193,40 @@ expect('answer 11', ruNoun(11, 'ответ', 'ответа', 'ответов'), 
 const hskOnly = freshState()
 hskOnly.lv = ['hsk1']
 expect('hsk1 examples', selectedWords(hskOnly).filter(word => word.example && word.exampleRu && word.examplePy).length, 500)
-expect('hsk above 1 examples', HSK_WORDS.filter(word => word.level > 1 && word.example).length, 0)
-const seenRu = new Map<string, string>()
-for (const word of HSK_WORDS) {
-  if (word.level !== 1) continue
-  expect(`${word.id} study`, studyExample(word.hanzi, word.example), true)
-  expect(`${word.id} ru`, word.exampleRu.length > 1, true)
-  const blank = clozeText(word.example, word.hanzi)
-  expect(`${word.id} cloze`, blank.includes('____'), true)
-  const got = syllables(word.examplePy)
-  const want = syllables(word.pinyin)
-  let at = -1
-  for (let i = 0; i + want.length <= got.length; i++) {
-    const same = want.every((syl, k) => {
-      const item = got[i + k]
-      return item?.base === syl.base && (item.tone === syl.tone || syl.base === 'yi' || syl.base === 'bu')
-    })
-    if (same) { at = i; break }
-  }
-  expect(`${word.id} reading in ${word.examplePy}`, at >= 0, true)
-  const han = [...word.example].filter(ch => /\p{Script=Han}/u.test(ch)).length
-  const er = [...word.example].filter(ch => ch === '儿').length
-  expect(`${word.id} syllables`, got.length <= han && got.length >= han - er && got.length > 0, true)
-  const prior = seenRu.get(word.exampleRu)
-  expect(`${word.id} unique ru ${word.exampleRu}`, prior || '', '')
-  seenRu.set(word.exampleRu, word.id)
-  const hit = word.example.indexOf(word.hanzi)
-  for (const other of HSK_WORDS) {
-    if (other.level !== 1 || other.hanzi.length <= word.hanzi.length || !other.hanzi.includes(word.hanzi)) continue
-    const place = word.example.indexOf(other.hanzi)
-    if (place >= 0 && place <= hit && place + other.hanzi.length >= hit + word.hanzi.length) {
-      expect(`${word.id} inside ${other.hanzi}`, false, true)
+expect('hsk2 examples', HSK_WORDS.filter(word => word.level === 2 && word.example && word.exampleRu && word.examplePy).length, 772)
+expect('hsk above 2 examples', HSK_WORDS.filter(word => word.level > 2 && word.example).length, 0)
+for (const level of [1, 2]) {
+  const seenRu = new Map<string, string>()
+  for (const word of HSK_WORDS) {
+    if (word.level !== level) continue
+    expect(`${word.id} study`, studyExample(word.hanzi, word.example), true)
+    expect(`${word.id} ru`, word.exampleRu.length > 1, true)
+    const blank = clozeText(word.example, word.hanzi)
+    expect(`${word.id} cloze`, blank.includes('____'), true)
+    const got = syllables(word.examplePy)
+    const want = syllables(word.pinyin)
+    let at = -1
+    for (let i = 0; i + want.length <= got.length; i++) {
+      const same = want.every((syl, k) => {
+        const item = got[i + k]
+        return item?.base === syl.base && (item.tone === syl.tone || syl.base === 'yi' || syl.base === 'bu')
+      })
+      if (same) { at = i; break }
+    }
+    expect(`${word.id} reading in ${word.examplePy}`, at >= 0, true)
+    const han = [...word.example].filter(ch => /\p{Script=Han}/u.test(ch)).length
+    const er = [...word.example].filter(ch => ch === '儿').length
+    expect(`${word.id} syllables`, got.length <= han && got.length >= han - er && got.length > 0, true)
+    const prior = seenRu.get(word.exampleRu)
+    expect(`${word.id} unique ru ${word.exampleRu}`, prior || '', '')
+    seenRu.set(word.exampleRu, word.id)
+    const hit = word.example.indexOf(word.hanzi)
+    for (const other of HSK_WORDS) {
+      if (other.level !== level || other.hanzi.length <= word.hanzi.length || !other.hanzi.includes(word.hanzi)) continue
+      const place = word.example.indexOf(other.hanzi)
+      if (place >= 0 && place <= hit && place + other.hanzi.length >= hit + word.hanzi.length) {
+        expect(`${word.id} inside ${other.hanzi}`, false, true)
+      }
     }
   }
 }
@@ -233,7 +236,11 @@ expect('hsk1 phrase quiz', canQuiz('sent'), true)
 expect('hsk1 cloze quiz', canQuiz('cloze'), true)
 expect('hsk1 say quiz', canQuiz('say'), true)
 deck.lv = ['hsk2']
-expect('hsk2 phrase waits', canQuiz('sent'), false)
+expect('hsk2 phrase quiz', canQuiz('sent'), true)
+expect('hsk2 cloze quiz', canQuiz('cloze'), true)
+expect('hsk2 say quiz', canQuiz('say'), true)
+deck.lv = ['hsk3']
+expect('hsk3 phrase waits', canQuiz('sent'), false)
 deck.lv = keptLv
 adoptRaw({
   v: 1,

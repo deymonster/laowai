@@ -1,4 +1,5 @@
 import { HSK1_EXAMPLES } from './hsk1-examples'
+import { HSK2_EXAMPLES } from './hsk2-examples'
 import type { Word } from './types'
 
 type Row = [string, number, string, string, string, string]
@@ -822,13 +823,13 @@ const ROWS: Row[] = [
 ["hsk-L2-0316",2,"科","kē","предмет","сущ."],
 ["hsk-L2-0317",2,"科学","kē xué","наука; научный","сущ."],
 ["hsk-L2-0318",2,"可爱","kě ài","милый","прил."],
-["hsk-L2-0319",2,"可能","kěn éng","возможно","гл."],
+["hsk-L2-0319",2,"可能","kě néng","возможно","гл."],
 ["hsk-L2-0320",2,"可怕","kě pà","страшный","прил."],
 ["hsk-L2-0321",2,"可是","kě shì","но","союз"],
 ["hsk-L2-0322",2,"可以","kě yǐ","мочь","гл."],
 ["hsk-L2-0323",2,"克","kè","грамм","счётн."],
 ["hsk-L2-0324",2,"刻","kè","четверть часа","счётн."],
-["hsk-L2-0325",2,"客人","kèr én","гость","сущ."],
+["hsk-L2-0325",2,"客人","kè rén","гость","сущ."],
 ["hsk-L2-0326",2,"课堂","kè táng","урок","сущ."],
 ["hsk-L2-0327",2,"空气","kōng qì","воздух","сущ."],
 ["hsk-L2-0328",2,"哭","kū","плакать","гл."],
@@ -1087,7 +1088,7 @@ const ROWS: Row[] = [
 ["hsk-L2-0581",2,"西北","xī běi","северо-запад","сущ."],
 ["hsk-L2-0582",2,"西餐","xī cān","западная кухня","сущ."],
 ["hsk-L2-0583",2,"西方","xī fāng","запад","сущ."],
-["hsk-L2-0584",2,"西南","xīn án","юго-запад","сущ."],
+["hsk-L2-0584",2,"西南","xī nán","юго-запад","сущ."],
 ["hsk-L2-0585",2,"西医","xī yī","западная медицина","сущ."],
 ["hsk-L2-0586",2,"习惯","xí guàn","привычка; привыкать","сущ."],
 ["hsk-L2-0587",2,"洗衣机","xǐ yī jī","стиральная машина","сущ."],
@@ -1234,7 +1235,7 @@ const ROWS: Row[] = [
 ["hsk-L2-0728",2,"正是","zhèng shì","являться","гл."],
 ["hsk-L2-0729",2,"直接","zhí jiē","прямой","прил."],
 ["hsk-L2-0730",2,"只","zhǐ","только","нареч."],
-["hsk-L2-0731",2,"只能","zhǐn éng","мочь только",""],
+["hsk-L2-0731",2,"只能","zhǐ néng","мочь только",""],
 ["hsk-L2-0732",2,"只要","zhǐ yào","если только","союз"],
 ["hsk-L2-0733",2,"纸","zhǐ","бумага","сущ."],
 ["hsk-L2-0734",2,"中餐","zhōng cān","китайская кухня","сущ."],
@@ -5463,9 +5464,13 @@ const ROWS: Row[] = [
 ]
 
 const NO_EXAMPLE = ['', '', ''] as const
+const BY_LEVEL: Record<number, Record<string, readonly [string, string, string]>> = {
+  1: HSK1_EXAMPLES,
+  2: HSK2_EXAMPLES,
+}
 
 export const HSK_WORDS: Word[] = ROWS.map(([id, level, hanzi, pinyin, ru, pos]) => {
-  const [example, examplePy, exampleRu] = level === 1 ? (HSK1_EXAMPLES[id] ?? NO_EXAMPLE) : NO_EXAMPLE
+  const [example, examplePy, exampleRu] = BY_LEVEL[level]?.[id] ?? NO_EXAMPLE
   return {
     id, topic: `hsk${level}`, hanzi, pinyin, ru, pos,
     note: '', example, examplePy, exampleRu, uses: [], level, custom: false,
