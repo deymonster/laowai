@@ -1,0 +1,22 @@
+{
+  "name": "svoi-slova",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "check": "node_modules/esbuild/bin/esbuild src/selfcheck.ts --bundle --platform=node --format=esm --outfile=/tmp/zici-selfcheck.mjs && node /tmp/zici-selfcheck.mjs"
+  },
+  "dependencies": {
+    "hanzi-writer": "^3.7.2",
+    "node-edge-tts": "^1.2.12",
+    "pinyin-pro": "^3.27.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "playwright-core": "^1.55.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.6"
+  }
+}

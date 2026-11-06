@@ -1,0 +1,13 @@
+services:
+  web:
+    build: .
+    image: laowai-web:1
+    container_name: laowai-web
+    restart: unless-stopped
+    networks:
+      - npm
+
+networks:
+  npm:
+    external: true
+    name: npm_default
