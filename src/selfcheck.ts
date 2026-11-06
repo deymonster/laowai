@@ -1,6 +1,7 @@
 import { cleanGloss, clozeText, exampleFits, ruNoun, studyExample } from './han'
 import { GRAMMAR, HSK } from './grammar'
 import { dictionaryQuery, parseBkrs } from '../server/bkrs'
+import { assertEdgeOpen, edgeCooling, edgeRate, noteEdgeFailure, noteEdgeSuccess } from '../server/edge-policy'
 import { analyze, searchKey, syllableAt } from './pinyin'
 import { judge, prettifyPinyin } from './pinyin'
 import { applyGrade, getP, planGrade, selectedWords, today } from './srs'
@@ -192,6 +193,21 @@ hskOnly.lv = ['hsk1']
 expect('hsk1 examples', selectedWords(hskOnly).filter(word => word.example).length, 0)
 const greetOnly = freshState()
 expect('greet examples', selectedWords(greetOnly).filter(word => word.example && word.exampleRu).length >= 4, true)
+expect('rate slow', edgeRate(0.8), '-25%')
+expect('rate normal', edgeRate(1), '+0%')
+expect('rate fast', edgeRate(1.2), '+25%')
+expect('rate faster', edgeRate(1.4), '+50%')
+noteEdgeFailure(5_000)
+expect('edge cooling', edgeCooling(5_000 + 44_000), true)
+expect('edge cooled', edgeCooling(5_000 + 45_000), false)
+noteEdgeSuccess()
+noteEdgeFailure()
+let edgeMessage = ''
+try { assertEdgeOpen() } catch (error) { edgeMessage = error instanceof Error ? error.message : '' }
+expect('edge skips while cooling', edgeMessage, 'cooling')
+noteEdgeSuccess()
+expect('edge open again', edgeCooling(), false)
+assertEdgeOpen()
 
 if (process.exitCode) console.error('selfcheck failed')
 else console.log('selfcheck ok')

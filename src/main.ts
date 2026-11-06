@@ -4,7 +4,7 @@ import { lookupWord, type DictHit } from './dict'
 import { cleanGloss, esc, exampleFits, hanChars, studyExample, uid } from './han'
 import { analyze, compose, judge, prettifyPinyin, syllableAt, type Reading } from './pinyin'
 import { blankEditor, ui, type Editor, type QuizKind } from './session'
-import { setSpeakNotice, speak } from './speech'
+import { setSpeakNotice, speak, warm } from './speech'
 import { makeQuiz } from './quiz'
 import { mountStroke, replayStroke, stepStroke } from './strokes'
 import { applyGrade, applyResult, buildQueue, findWord, selectedWords, shuffle } from './srs'
@@ -129,6 +129,29 @@ function draw() {
   const head = scrollId ? document.getElementById(`topic-${scrollId}`) : null
   if (head) head.scrollIntoView({ block: 'start' })
   armClock()
+  warmVisible()
+}
+
+function warmVisible() {
+  if (state.settings.voice === 'system') return
+  if (ui.view === 'study' && ui.study?.ids.length) {
+    const word = findWord(state, ui.study.ids[0])
+    if (word) warm(word.hanzi, word.pinyin)
+  }
+  const quiz = ui.quiz
+  if (ui.view === 'quiz' && quiz && quiz.i < quiz.items.length) {
+    const word = findWord(state, quiz.items[quiz.i].id)
+    if (word) {
+      if (quiz.kind === 'sent') warm(word.example, word.examplePy)
+      else if (quiz.kind !== 'gram') warm(word.hanzi, word.pinyin)
+    }
+  }
+  const typing = ui.type
+  if (ui.view === 'write' && ui.writeMode === 'type' && typing && typing.i < typing.ids.length) {
+    const word = findWord(state, typing.ids[typing.i])
+    if (word) warm(word.hanzi, word.pinyin)
+  }
+  if (ui.view === 'edit' && ui.editor?.hanzi) warm(ui.editor.hanzi, ui.editor.pinyin)
 }
 
 let clockTimer = 0
