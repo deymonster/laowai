@@ -236,14 +236,15 @@ function sayCard(word: Word, item: QuizItem): string {
       ? 'Запись уходит в распознавание браузера. В Safari китайская речь часто обрывается.'
       : 'Запись уходит в распознавание браузера. В Chrome это сервис Google.'
   const heard = item.mark === 'ok' || item.mark === 'off' ? `<p class="heard" lang="zh-Hans">${diffHtml(word.example, item.heard || '')}</p>` : ''
-  const phrase = done ? `<p class="muted">Фраза: <span lang="zh-Hans">${esc(word.example)}</span></p><div class="py">${shownPy(word.examplePy)}</div><p>${esc(word.exampleRu)}</p>` : ''
+  const ru = done ? `<p>${esc(word.exampleRu)}</p>` : ''
   const verdict = item.mark === 'ok' ? '<p>Совпало.</p>' : item.mark === 'off' ? '<p>Есть расхождения.</p>' : item.mark === 'skip' ? '<p>Без проверки микрофоном.</p>' : ''
   const mic = support !== 'none' && !done ? '<button type="button" class="btn" data-act="sayrec">Повторить</button>' : ''
   const self = support === 'none' && !done ? '<div class="grades"><button type="button" data-act="saymark" data-v="hear">Слышу</button><button type="button" data-act="saymark" data-v="miss">Не слышу</button></div>' : ''
   const last = ui.quiz ? ui.quiz.i + 1 >= ui.quiz.items.length : false
   const next = done ? `<button type="button" class="btn primary block" data-act="qnext">${last ? 'Результат' : 'Дальше'}</button>` : ''
   const place = ui.quiz ? `${ui.quiz.i + 1} / ${ui.quiz.items.length}` : ''
-  return `<section class="card"><div class="rowtop"><span class="tag">Фраза ${place}</span></div><div class="q">${speakBtn(word.example, 'Прослушать', word.examplePy)}<p class="muted center">Прослушайте и повторите пример.</p><p class="hint">${esc(note)}</p><div class="acts center">${mic}</div>${self}${heard}${verdict}${phrase}${next}</div></section><p class="center"><button type="button" class="btn tiny" data-act="qstop">Выйти</button></p>`
+  const script = `<div class="center"><div class="hz" lang="zh-Hans">${toneHan(word.example, word.examplePy)}</div><div class="py">${shownPy(word.examplePy)}</div></div>`
+  return `<section class="card"><div class="rowtop"><span class="tag">Фраза ${place}</span></div><div class="q">${script}${speakBtn(word.example, 'Прослушать', word.examplePy)}<p class="muted center">Прочитайте и повторите вслух.</p><p class="hint">${esc(note)}</p><div class="acts center">${mic}</div>${self}${heard}${verdict}${ru}${next}</div></section><p class="center"><button type="button" class="btn tiny" data-act="qstop">Выйти</button></p>`
 }
 
 function ruleMatches(rule: (typeof GRAMMAR)[number], query: string): boolean {
