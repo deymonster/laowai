@@ -1,8 +1,9 @@
 import { GRAMMAR } from './grammar'
+import { exampleFits } from './han'
 import type { QuizItem, QuizKind, QuizSess } from './session'
 import { selectedWords, shuffle } from './srs'
 import { state } from './store'
-import type { Word } from './types'
+import type { Sample, Word } from './types'
 
 export function quizBlurb(kind: QuizKind): string {
   if (kind === 'aud') return 'Слово звучит, нужно выбрать иероглифы. Десять вопросов.'
@@ -10,7 +11,7 @@ export function quizBlurb(kind: QuizKind): string {
   if (kind === 'cloze') return 'В примере пропущено слово. Нужно выбрать иероглифы.'
   if (kind === 'gram') return 'Десять правил выбранных уровней HSK. Прогресс слов при этом не меняется.'
   if (kind === 'say') return state.settings.sayShow
-    ? 'На экране фраза и пиньинь. Прочитайте вслух. Десять фраз только из выбранных списков.'
+    ? 'На экране фраза, пиньинь и перевод. Прочитайте вслух. Десять фраз только из выбранных списков.'
     : 'Слушаете пример и повторяете его. Десять фраз только из выбранных списков.'
   if (kind === 'speed') return `Минута на иероглиф и перевод. Ошибка отнимает 3 секунды. Рекорд: ${state.rec}.`
   return 'Десять вопросов. Ответ двигает прогресс слова.'
@@ -20,9 +21,29 @@ function withExample(list: Word[], cloze: boolean): Word[] {
   return list.filter(word => word.example && word.exampleRu && (!cloze || word.example.includes(word.hanzi)))
 }
 
+export function sayLines(list: Word[]): { id: string; line: Sample }[] {
+  const out: { id: string; line: Sample }[] = []
+  for (const word of list) {
+    if (word.example && word.exampleRu && exampleFits(word.hanzi, word.example)) {
+      out.push({ id: word.id, line: { hanzi: word.example, py: word.examplePy, ru: word.exampleRu } })
+    }
+    for (const item of word.uses || []) {
+      if (item.hanzi && item.ru && exampleFits(word.hanzi, item.hanzi)) {
+        out.push({ id: word.id, line: { hanzi: item.hanzi, py: item.py || '', ru: item.ru } })
+      }
+    }
+  }
+  return out
+}
+
+export function lineOf(word: Word, item: { line?: Sample }): Sample {
+  if (item.line?.hanzi && item.line.ru) return item.line
+  return { hanzi: word.example, py: word.examplePy, ru: word.exampleRu }
+}
+
 export function quizWords(kind: QuizKind): Word[] {
   const selected = selectedWords(state)
-  if (kind === 'cloze' || kind === 'sent' || kind === 'say') return withExample(selected, kind === 'cloze')
+  if (kind === 'cloze' || kind === 'sent') return withExample(selected, kind === 'cloze')
   return selected.length >= 4 ? selected : state.words
 }
 
@@ -34,6 +55,7 @@ function grammarNow() {
 
 export function canQuiz(kind: QuizKind): boolean {
   if (kind === 'gram') return grammarNow().length >= 4
+  if (kind === 'say') return sayLines(selectedWords(state)).length >= 4
   return quizWords(kind).length >= 4
 }
 
@@ -74,11 +96,12 @@ export function makeQuiz(kind: QuizKind): QuizSess | null {
     }
   }
   if (kind === 'say') {
-    const words = quizWords(kind)
-    const picked: Word[] = []
-    while (picked.length < 10) picked.push(...shuffle(words))
+    const lines = sayLines(selectedWords(state))
+    if (lines.length < 4) return null
+    const picked: { id: string; line: Sample }[] = []
+    while (picked.length < 10) picked.push(...shuffle(lines))
     picked.length = 10
-    return { kind, i: 0, ok: 0, bad: [], until: 0, items: picked.map(word => ({ id: word.id, pick: null, opts: [] })) }
+    return { kind, i: 0, ok: 0, bad: [], until: 0, items: picked.map(row => ({ id: row.id, pick: null, opts: [], line: row.line })) }
   }
   const words = quizWords(kind)
   const count = kind === 'speed' ? 40 : 10

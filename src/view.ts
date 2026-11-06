@@ -2,12 +2,12 @@ import { ACH } from './achieve'
 import { GRAMMAR, HSK } from './grammar'
 import { clozeText, esc, hanChars, ruNoun } from './han'
 import { alignHeard, pronounceSupport } from './pronounce'
-import { canQuiz, quizBlurb } from './quiz'
+import { canQuiz, lineOf, quizBlurb } from './quiz'
 import { compose, pyHTML, searchKey, toneOf, type Reading } from './pinyin'
 import { blankEditor, ui, type Editor, type QuizItem } from './session'
 import { findWord, getP, inTopic, selectedWords, statusOf, streak, today, topicCount, buildQueue, dueLabel, nextDue, type Grade } from './srs'
 import { RATES, state } from './store'
-import type { Word } from './types'
+import type { Sample, Word } from './types'
 import { APP_VERSION } from './version'
 
 const GRID = '<svg class="gr" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="M0 0 L100 100 M100 0 L0 100 M50 0 V100 M0 50 H100"/></svg>'
@@ -173,9 +173,11 @@ function quizView(): string {
   if (!ui.quiz) {
     const can = canQuiz(ui.quizKind)
     const start = ui.quizKind === 'speed' ? 'Старт · 60 секунд' : 'Начать тест'
-    const lack = ui.quizKind === 'sent' || ui.quizKind === 'cloze' || ui.quizKind === 'say'
-      ? 'В выбранных списках мало примеров. Другие списки в этот тест не попадают.'
-      : 'Для этого режима пока мало слов. Выберите другие списки или другой тест.'
+    const lack = ui.quizKind === 'say'
+      ? 'В выбранных списках мало предложений. Откройте слово и впишите фразу с его иероглифами и переводом. Другие списки в этот тест не попадают.'
+      : ui.quizKind === 'sent' || ui.quizKind === 'cloze'
+        ? 'В выбранных списках мало примеров. Другие списки в этот тест не попадают.'
+        : 'Для этого режима пока мало слов. Выберите другие списки или другой тест.'
     return `<section class="card"><h2>Тест</h2>${seg(kinds, ui.quizKind, 'qkind')}<p class="muted">${esc(quizBlurb(ui.quizKind))}</p>${can ? '' : `<p class="muted">${lack}</p>`}<button type="button" class="btn primary block" data-act="qstart"${can ? '' : ' disabled'}>${start}</button></section>`
   }
   const quiz = ui.quiz
@@ -236,8 +238,8 @@ function sayCard(word: Word, item: QuizItem): string {
     : support === 'webkit'
       ? 'Запись уходит в распознавание браузера. В Safari китайская речь часто обрывается.'
       : 'Запись уходит в распознавание браузера. В Chrome это сервис Google.'
-  const heard = item.mark === 'ok' || item.mark === 'off' ? `<p class="heard" lang="zh-Hans">${diffHtml(word.example, item.heard || '')}</p>` : ''
-  const ru = done ? `<p>${esc(word.exampleRu)}</p>` : ''
+  const phrase = lineOf(word, item)
+  const heard = item.mark === 'ok' || item.mark === 'off' ? `<p class="heard" lang="zh-Hans">${diffHtml(phrase.hanzi, item.heard || '')}</p>` : ''
   const verdict = item.mark === 'ok' ? '<p>Совпало.</p>' : item.mark === 'off' ? '<p>Есть расхождения.</p>' : item.mark === 'skip' ? '<p>Без проверки микрофоном.</p>' : ''
   const mic = support !== 'none' && !done ? '<button type="button" class="btn" data-act="sayrec">Повторить</button>' : ''
   const self = support === 'none' && !done ? '<div class="grades"><button type="button" data-act="saymark" data-v="hear">Слышу</button><button type="button" data-act="saymark" data-v="miss">Не слышу</button></div>' : ''
@@ -245,9 +247,10 @@ function sayCard(word: Word, item: QuizItem): string {
   const next = done ? `<button type="button" class="btn primary block" data-act="qnext">${last ? 'Результат' : 'Дальше'}</button>` : ''
   const place = ui.quiz ? `${ui.quiz.i + 1} / ${ui.quiz.items.length}` : ''
   const show = state.settings.sayShow
-  const script = `<div class="center"><div class="hz" lang="zh-Hans">${toneHan(word.example, word.examplePy)}</div><div class="py">${shownPy(word.examplePy)}</div></div>`
+  const gloss = phrase.ru ? `<p>${esc(phrase.ru)}</p>` : ''
+  const script = `<div class="center"><div class="hz" lang="zh-Hans">${toneHan(phrase.hanzi, phrase.py)}</div><div class="py">${shownPy(phrase.py)}</div>${gloss}</div>`
   const cue = show ? 'Прочитайте и повторите вслух.' : 'Прослушайте и повторите пример.'
-  return `<section class="card"><div class="rowtop"><span class="tag">Фраза ${place}</span></div><div class="q">${show || done ? script : ''}${speakBtn(word.example, 'Прослушать', word.examplePy)}<p class="muted center">${cue}</p><p class="hint">${esc(note)}</p><div class="acts center">${mic}</div>${self}${heard}${verdict}${ru}${next}</div></section><p class="center"><button type="button" class="btn tiny" data-act="qstop">Выйти</button></p>`
+  return `<section class="card"><div class="rowtop"><span class="tag">Фраза ${place}</span></div><div class="q">${show || done ? script : ''}${speakBtn(phrase.hanzi, 'Прослушать', phrase.py)}<p class="muted center">${cue}</p><p class="hint">${esc(note)}</p><div class="acts center">${mic}</div>${self}${heard}${verdict}${next}</div></section><p class="center"><button type="button" class="btn tiny" data-act="qstop">Выйти</button></p>`
 }
 
 function ruleMatches(rule: (typeof GRAMMAR)[number], query: string): boolean {
@@ -386,7 +389,7 @@ function listView(): string {
   const outside = state.words.filter(word => inTopic(state, word, topic.id) && !levels.includes(word.level || 1)).length
   const levelNote = outside ? `<p class="hint">${outside} не попадут в учёбу и тесты: их уровень HSK сейчас выключен. В этом списке они есть.</p>` : ''
   const own = topic.builtin ? '' : `<div class="addtopic"><input id="renametopic" value="${esc(topic.name)}" maxlength="40" aria-label="Новое название"><button type="button" class="btn" data-act="rentopic" data-n="${esc(topic.id)}">Переименовать</button></div>${ui.dropTopic === topic.id ? `<div class="confirm"><span>Удалить подборку? Её слова останутся в «Моих словах».</span><button type="button" class="btn danger" data-act="deltopic" data-n="${esc(topic.id)}">Удалить</button><button type="button" class="btn" data-act="drop-no">Отмена</button></div>` : `<button type="button" class="btn danger" data-act="drop-ask" data-n="${esc(topic.id)}">Удалить подборку</button>`}`
-  return `<section class="card"><div class="rowtop"><button type="button" class="btn tiny" data-act="folders">Все подборки</button><h2>${esc(topic.name)}</h2><span class="tag">${wordsLabel(topicCount(state, topic.id))}</span></div><p class="hint">Новое слово сохранится в эту подборку. Примеры фраз показаны у каждого слова.</p>${own}${levelNote}${wordTools()}</section>`
+  return `<section class="card"><div class="rowtop"><button type="button" class="btn tiny" data-act="folders">Все подборки</button><h2>${esc(topic.name)}</h2><span class="tag">${wordsLabel(topicCount(state, topic.id))}</span></div><p class="hint">Новое слово сохранится в эту подборку. В карточке слова можно добавить предложения с его иероглифами: они пойдут в проверку произношения, если этот список отмечен.</p>${own}${levelNote}${wordTools()}</section>`
 }
 
 export function readingExtras(parts: Reading[], picks: Record<number, string>, scope: 'word' | 'ex'): string {
@@ -401,13 +404,17 @@ export function readingExtras(parts: Reading[], picks: Record<number, string>, s
   return `${hint}<div class="syls">${chips}</div><p class="hint">Если у иероглифа несколько чтений, для слова выбрано словарное. Нажмите другое, если имелось в виду оно.</p>`
 }
 
+function useFields(uses: Sample[]): string {
+  return uses.map((item, index) => `<div class="linebox"><label class="field">Ещё предложение<input data-k="use-han" data-i="${index}" lang="zh-Hans" value="${esc(item.hanzi)}" autocomplete="off" placeholder="椅子在房间里。"></label><label class="field">Пиньинь<input data-k="use-py" data-i="${index}" value="${esc(item.py)}" autocomplete="off" spellcheck="false" placeholder="подставится само"></label><label class="field">Перевод<input data-k="use-ru" data-i="${index}" value="${esc(item.ru)}" placeholder="Стул в комнате."></label><button type="button" class="btn tiny" data-act="usedel" data-i="${index}">Убрать предложение</button></div>`).join('')
+}
+
 function editView(): string {
   const editor = ui.editor || blankEditor('my')
   const topicOptions = state.topics.map(topic => `<option value="${esc(topic.id)}"${topic.id === editor.topic ? ' selected' : ''}>${esc(topic.name)}</option>`).join('')
   const posOptions = POS.map(pos => `<option value="${esc(pos)}"${pos === editor.pos ? ' selected' : ''}>${esc(pos || 'часть речи')}</option>`).join('')
   const hskOptions = HSK.map(level => `<option value="${level}"${level === editor.level ? ' selected' : ''}>HSK ${level}</option>`).join('')
   const lockTopic = !editor.id && !!(ui.folder || state.lv.length <= 1)
-  return `<section class="card"><div class="rowtop"><h2>${editor.id ? 'Изменить слово' : 'Новое слово'}</h2><button type="button" class="btn tiny" data-act="back">Назад</button></div><label class="field">Найти слово<input id="f-q" value="${esc(editor.query)}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="привет, 银行 или yinhang" aria-label="Найти слово"></label><p class="hint">Русское слово, иероглифы или пиньинь. Перевод берётся из БКРС, чтение считается по слову.</p><p class="hint" id="lookupmsg">${esc(editor.lookupMsg)}</p><div id="hits" class="hits">${dictHitHtml(editor.hits)}</div><label class="field">Иероглифы<input id="f-han" lang="zh-Hans" value="${esc(editor.hanzi)}" autocomplete="off" autocapitalize="off" placeholder="例如 银行"></label><label class="check"><input id="f-sur" type="checkbox"${editor.surname ? ' checked' : ''}> Читать первый знак как фамилию</label><label class="field">Пиньинь<input id="f-py" value="${esc(editor.pinyin)}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="подставится само, можно ni3 hao3"></label><div class="acts"><button type="button" class="btn tiny" data-act="pyreset">Снова из иероглифов</button>${speakBtn(editor.hanzi, 'Прослушать слово', editor.pinyin)}</div><div id="pybox">${editor.loading ? '<p class="hint">Подбираем чтение…</p>' : readingExtras(editor.parts, editor.picks, 'word')}</div><p class="warn" id="editwarn">${esc(editor.warn)}</p><label class="field">Перевод<input id="f-ru" value="${esc(editor.ru)}" placeholder="банк"></label><label class="field">Часть речи<select id="f-pos">${posOptions}</select></label><label class="field">Уровень HSK<select id="f-hsk">${hskOptions}</select></label>${lockTopic ? `<p class="hint">Слово сохранится в подборку «${esc(topicName(editor.topic))}».</p>` : `<label class="field">Подборка<select id="f-topic">${topicOptions}</select></label>`}<label class="field">Заметка<textarea id="f-note" rows="2">${esc(editor.note)}</textarea></label><label class="field">Пример<input id="f-ex" lang="zh-Hans" value="${esc(editor.example)}" autocomplete="off" placeholder="我去银行。"></label><label class="field">Пиньинь примера<input id="f-expy" value="${esc(editor.examplePy)}" autocomplete="off" spellcheck="false"></label><div id="exbox">${readingExtras(editor.exampleParts, editor.examplePicks, 'ex')}</div><label class="field">Перевод примера<input id="f-exru" value="${esc(editor.exampleRu)}"></label>${editor.error ? `<p class="error">${esc(editor.error)}</p>` : ''}<button type="button" class="btn primary block" data-act="save">Сохранить</button></section>`
+  return `<section class="card"><div class="rowtop"><h2>${editor.id ? 'Изменить слово' : 'Новое слово'}</h2><button type="button" class="btn tiny" data-act="back">Назад</button></div><label class="field">Найти слово<input id="f-q" value="${esc(editor.query)}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="привет, 银行 или yinhang" aria-label="Найти слово"></label><p class="hint">Русское слово, иероглифы или пиньинь. Перевод берётся из БКРС, чтение считается по слову.</p><p class="hint" id="lookupmsg">${esc(editor.lookupMsg)}</p><div id="hits" class="hits">${dictHitHtml(editor.hits)}</div><label class="field">Иероглифы<input id="f-han" lang="zh-Hans" value="${esc(editor.hanzi)}" autocomplete="off" autocapitalize="off" placeholder="例如 银行"></label><label class="check"><input id="f-sur" type="checkbox"${editor.surname ? ' checked' : ''}> Читать первый знак как фамилию</label><label class="field">Пиньинь<input id="f-py" value="${esc(editor.pinyin)}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="подставится само, можно ni3 hao3"></label><div class="acts"><button type="button" class="btn tiny" data-act="pyreset">Снова из иероглифов</button>${speakBtn(editor.hanzi, 'Прослушать слово', editor.pinyin)}</div><div id="pybox">${editor.loading ? '<p class="hint">Подбираем чтение…</p>' : readingExtras(editor.parts, editor.picks, 'word')}</div><p class="warn" id="editwarn">${esc(editor.warn)}</p><label class="field">Перевод<input id="f-ru" value="${esc(editor.ru)}" placeholder="банк"></label><label class="field">Часть речи<select id="f-pos">${posOptions}</select></label><label class="field">Уровень HSK<select id="f-hsk">${hskOptions}</select></label>${lockTopic ? `<p class="hint">Слово сохранится в подборку «${esc(topicName(editor.topic))}».</p>` : `<label class="field">Подборка<select id="f-topic">${topicOptions}</select></label>`}<label class="field">Заметка<textarea id="f-note" rows="2">${esc(editor.note)}</textarea></label><p class="field">Предложения</p><p class="hint">Фраза попадает в проверку произношения, если в ней есть иероглифы этого слова и выбран этот список. Пиньинь можно оставить пустым. Перевод виден на карточке вместе с фразой.</p><label class="field">Предложение<input id="f-ex" lang="zh-Hans" value="${esc(editor.example)}" autocomplete="off" placeholder="我去银行。"></label><label class="field">Пиньинь<input id="f-expy" value="${esc(editor.examplePy)}" autocomplete="off" spellcheck="false" placeholder="подставится само"></label><div id="exbox">${readingExtras(editor.exampleParts, editor.examplePicks, 'ex')}</div><label class="field">Перевод<input id="f-exru" value="${esc(editor.exampleRu)}" placeholder="Я иду в банк."></label>${useFields(editor.uses)}<button type="button" class="btn" data-act="useadd">Ещё предложение</button>${editor.error ? `<p class="error">${esc(editor.error)}</p>` : ''}<button type="button" class="btn primary block" data-act="save">Сохранить</button></section>`
 }
 
 function writePicks(): string {
@@ -509,6 +516,7 @@ export function editorFromWord(word: Word): Editor {
   editor.examplePy = word.examplePy
   editor.exampleAuto = false
   editor.exampleRu = word.exampleRu
+  editor.uses = (word.uses || []).map(item => ({ hanzi: item.hanzi, py: item.py, ru: item.ru }))
   editor.level = word.level || 1
   return editor
 }

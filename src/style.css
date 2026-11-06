@@ -167,6 +167,8 @@ textarea { min-height: 72px; resize: vertical; }
 .ru { font-size: 28px; text-align: center; margin: 8px 0; }
 .pos, .note { color: var(--muted); }
 .note { margin: 8px 0; }
+.linebox { margin-top: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; }
+.linebox .field:first-child { margin-top: 0; }
 .ex { display: grid; gap: 4px; margin-top: 10px; padding: 10px; border-radius: 12px; background: var(--bg); }
 .exh { display: flex; justify-content: space-between; gap: 8px; align-items: center; font: 22px/1.4 "Songti SC", "Noto Serif SC", serif; }
 .grades { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }

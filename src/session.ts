@@ -1,5 +1,6 @@
 import type { DictHit } from './dict'
 import type { Reading } from './pinyin'
+import type { Sample } from './types'
 
 export type ViewName = 'study' | 'quiz' | 'gram' | 'list' | 'write' | 'prog' | 'edit' | 'set'
 export type QuizKind = 'h2r' | 'r2h' | 'h2p' | 'aud' | 'sent' | 'cloze' | 'gram' | 'speed' | 'say'
@@ -19,6 +20,7 @@ export type Editor = {
   exampleAuto: boolean
   examplePicks: Record<number, string>
   exampleRu: string
+  uses: Sample[]
   topic: string
   level: number
   parts: Reading[]
@@ -41,7 +43,7 @@ export type StudySess = {
   show: boolean
 }
 
-export type QuizItem = { id: string; opts: { text: string; ok: boolean }[]; pick: number | null; heard?: string; mark?: 'ok' | 'off' | 'skip' }
+export type QuizItem = { id: string; opts: { text: string; ok: boolean }[]; pick: number | null; heard?: string; mark?: 'ok' | 'off' | 'skip'; line?: Sample }
 export type QuizSess = { kind: QuizKind; items: QuizItem[]; i: number; ok: number; bad: string[]; until: number }
 export type TypeSess = { mode: 'py' | 'hz'; ids: string[]; i: number; ok: number; bad: string[]; res: { r: string; val: string } | null }
 
@@ -79,7 +81,7 @@ export const ui = {
 export function blankEditor(topic: string): Editor {
   return {
     id: null, hanzi: '', pinyin: '', auto: true, picks: {}, surname: false, ru: '', pos: '', note: '',
-    example: '', examplePy: '', exampleAuto: true, examplePicks: {}, exampleRu: '', topic, level: 1,
+    example: '', examplePy: '', exampleAuto: true, examplePicks: {}, exampleRu: '', uses: [], topic, level: 1,
     parts: [], exampleParts: [], error: '', warn: '', loading: false,
     query: '', hits: [], lookupMsg: '', lastHit: '',
   }

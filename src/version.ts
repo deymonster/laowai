@@ -1,2 +1,2 @@
 /** Совпадает с полем version в package.json и с тегом релиза. */
-export const APP_VERSION = '1.0.7'
+export const APP_VERSION = '1.0.8'

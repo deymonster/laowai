@@ -5,11 +5,11 @@ import { cleanGloss, esc, exampleFits, hanChars, studyExample, uid } from './han
 import { analyze, compose, judge, prettifyPinyin, syllableAt, type Reading } from './pinyin'
 import { blankEditor, ui, type Editor, type QuizKind } from './session'
 import { setSpeakActivity, setSpeakNotice, speakingNow, speak, stopSpeak, warm } from './speech'
-import { makeQuiz } from './quiz'
+import { lineOf, makeQuiz } from './quiz'
 import { mountStroke, replayStroke, stepStroke } from './strokes'
 import { applyGrade, applyResult, buildQueue, findWord, selectedWords, shuffle } from './srs'
 import { adoptRaw, load, resetState, save, state } from './store'
-import type { Word } from './types'
+import type { Sample, Word } from './types'
 import { gramListHtml, dictHitHtml, editorFromWord, listResults, readingExtras, renderApp, writeGlossInner } from './view'
 import { listenOnce, stopListen } from './pronounce'
 
@@ -173,8 +173,11 @@ function warmVisible() {
   if (ui.view === 'quiz' && quiz && quiz.i < quiz.items.length) {
     const word = findWord(state, quiz.items[quiz.i].id)
     if (word) {
-      if (quiz.kind === 'sent' || quiz.kind === 'say') warm(word.example, word.examplePy)
-      else if (quiz.kind !== 'gram') warm(word.hanzi, word.pinyin)
+      if (quiz.kind === 'sent') warm(word.example, word.examplePy)
+      else if (quiz.kind === 'say') {
+        const line = lineOf(word, quiz.items[quiz.i])
+        warm(line.hanzi, line.py)
+      } else if (quiz.kind !== 'gram') warm(word.hanzi, word.pinyin)
     }
   }
   const typing = ui.type
@@ -237,6 +240,12 @@ function readEditor() {
     editor.example = field('f-ex')
     editor.examplePy = field('f-expy')
     editor.exampleRu = field('f-exru')
+    editor.uses = Array.from(document.querySelectorAll<HTMLInputElement>('[data-k="use-han"]')).map(input => {
+      const index = input.dataset.i || '0'
+      const py = document.querySelector<HTMLInputElement>(`[data-k="use-py"][data-i="${index}"]`)
+      const ru = document.querySelector<HTMLInputElement>(`[data-k="use-ru"][data-i="${index}"]`)
+      return { hanzi: input.value, py: py?.value || '', ru: ru?.value || '' }
+    })
     editor.surname = (document.getElementById('f-sur') as HTMLInputElement | null)?.checked || false
     editor.query = field('f-q')
   }
@@ -551,6 +560,22 @@ function startQuiz(kind: QuizKind) {
   speakQuizItem()
 }
 
+function takeLine(head: string, hanzi: string, py: string, ru: string): { line: Sample | null } | { error: string } {
+  const text = hanzi.trim()
+  const gloss = ru.trim()
+  if (!text && !gloss && !py.trim()) return { line: null }
+  if (!hanChars(text).length) return { error: 'В предложении нужен иероглиф.' }
+  if (!exampleFits(head, text)) return { error: 'В предложении должны быть иероглифы этого слова.' }
+  if (!gloss) return { error: 'Нужен перевод предложения.' }
+  return { line: { hanzi: text, py: py.trim(), ru: gloss } }
+}
+
+async function fillPy(text: string, py: string): Promise<string> {
+  const ready = py.trim()
+  if (ready) return prettifyPinyin(ready)
+  return prettifyPinyin((await analyze(text, false)).text)
+}
+
 async function saveEditor() {
   readEditor()
   const editor = ui.editor
@@ -567,16 +592,24 @@ async function saveEditor() {
   }
   pinyin = prettifyPinyin(pinyin)
   if (!pinyin) { editor.error = 'Не удалось получить пиньинь. Впишите чтение вручную.'; draw(); return }
-  const rawExample = editor.example.trim()
-  const example = exampleFits(hanzi, rawExample) ? rawExample : ''
-  let examplePy = example ? editor.examplePy.trim() : ''
-  if (example && !examplePy) examplePy = (await analyze(example, false)).text
-  if (examplePy) examplePy = prettifyPinyin(examplePy)
+  const primary = takeLine(hanzi, editor.example, editor.examplePy, editor.exampleRu)
+  if ('error' in primary) { editor.error = primary.error; draw(); return }
+  const extras: Sample[] = []
+  for (const item of editor.uses) {
+    const next = takeLine(hanzi, item.hanzi, item.py, item.ru)
+    if ('error' in next) { editor.error = next.error; draw(); return }
+    if (next.line) extras.push(next.line)
+  }
+  const example = primary.line?.hanzi || ''
+  const examplePy = example ? await fillPy(example, primary.line?.py || '') : ''
+  const exampleRu = primary.line?.ru || ''
+  const uses: Sample[] = []
+  for (const item of extras) uses.push({ hanzi: item.hanzi, py: await fillPy(item.hanzi, item.py), ru: item.ru })
   const word: Word = {
     id: editor.id || uid('c'),
     topic, hanzi, pinyin, ru, pos: editor.pos, note: editor.note.trim(),
-    example, examplePy, exampleRu: example ? editor.exampleRu.trim() : '',
-    uses: (editor.id ? (findWord(state, editor.id)?.uses || []) : []).filter(item => exampleFits(hanzi, item.hanzi)),
+    example, examplePy, exampleRu,
+    uses,
     level: editor.level,
     custom: editor.id ? (findWord(state, editor.id)?.custom ?? true) : true,
   }
@@ -773,6 +806,20 @@ async function act(name: string, el: HTMLElement) {
     }
     case 'back': ui.editor = null; ui.view = 'list'; break
     case 'save': await saveEditor(); return
+    case 'useadd': {
+      readEditor()
+      if (!ui.editor) return
+      ui.editor.uses.push({ hanzi: '', py: '', ru: '' })
+      break
+    }
+    case 'usedel': {
+      readEditor()
+      if (!ui.editor) return
+      const index = Number(el.dataset.i)
+      if (!Number.isInteger(index) || index < 0 || index >= ui.editor.uses.length) return
+      ui.editor.uses.splice(index, 1)
+      break
+    }
     case 'pyreset': {
       const editor = ui.editor
       if (!editor) return
@@ -852,7 +899,8 @@ async function act(name: string, el: HTMLElement) {
       const item = quiz?.items[quiz.i]
       const word = item ? findWord(state, item.id) : undefined
       if (!quiz || quiz.kind !== 'say' || !item || !word || item.mark) return
-      listenOnce(word.example, result => {
+      const line = lineOf(word, item)
+      listenOnce(line.hanzi, result => {
         if (ui.quiz !== quiz || quiz.items[quiz.i] !== item) return
         item.heard = result.heard
         item.mark = result.ok ? 'ok' : 'off'
@@ -868,7 +916,7 @@ async function act(name: string, el: HTMLElement) {
       const item = quiz?.items[quiz.i]
       const word = item ? findWord(state, item.id) : undefined
       if (!quiz || quiz.kind !== 'say' || !item || !word || item.mark) return
-      if (el.dataset.v === 'miss') { void speak(word.example, word.examplePy); return }
+      if (el.dataset.v === 'miss') { const line = lineOf(word, item); void speak(line.hanzi, line.py); return }
       item.mark = 'skip'
       item.pick = 0
       draw()

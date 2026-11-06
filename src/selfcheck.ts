@@ -5,7 +5,7 @@ import { dictionaryQuery, parseBkrs } from '../server/bkrs'
 import { assertEdgeOpen, edgeCooling, edgeRate, noteEdgeFailure, noteEdgeSuccess } from '../server/edge-policy'
 import { analyze, searchKey, syllableAt, syllables } from './pinyin'
 import { judge, prettifyPinyin } from './pinyin'
-import { canQuiz } from './quiz'
+import { canQuiz, makeQuiz, sayLines } from './quiz'
 import { applyGrade, getP, planGrade, selectedWords, today } from './srs'
 import { HSK_WORDS } from './hsk-list'
 import { SEED, TOPICS } from './seed'
@@ -100,7 +100,7 @@ expect('hsk bands', HSK.length, 6)
 for (const level of HSK) expect(`hsk ${level} rules`, GRAMMAR.filter(rule => rule.level === level).length >= 4, true)
 expect('goal default', freshState().settings.goal, 0)
 expect('say show default', freshState().settings.sayShow, true)
-expect('app version', APP_VERSION, '1.0.7')
+expect('app version', APP_VERSION, '1.0.8')
 expect('g1 level', freshState().words.find(word => word.id === 'g1')?.level, 1)
 expect('bank level', freshState().words.find(word => word.id === 'r1')?.level, 3)
 expect('default hsk', freshState().hsk.join(','), '1,2,3,4,5,6')
@@ -267,6 +267,29 @@ adoptRaw({
   }],
 })
 expect('custom example stays', deck.words.find(word => word.id === 'hsk-L1-0001')?.example, '我爱茶。')
+deck.topics.push({ id: 'furn', name: 'Мебель', builtin: false })
+const furn = (hanzi: string, ru: string, example: string, exampleRu: string, uses: { hanzi: string; py: string; ru: string }[] = []) => {
+  deck.words.push({
+    id: 'furn-' + hanzi, topic: 'furn', hanzi, pinyin: 'x', ru, pos: 'сущ.',
+    note: '', example, examplePy: 'x', exampleRu, uses, level: 1, custom: true,
+  })
+}
+furn('椅子', 'стул', '这是椅子。', 'Это стул.', [{ hanzi: '椅子在那边。', py: 'yǐ zi zài nà biān.', ru: 'Стул там.' }])
+furn('桌子', 'стол', '桌子是新的。', 'Стол новый.')
+furn('沙发', 'диван', '沙发很软。', 'Диван мягкий.')
+const furnLv = deck.lv.slice()
+const furnHsk = deck.hsk.slice()
+deck.lv = ['furn']
+deck.hsk = [1]
+expect('furniture say', canQuiz('say'), true)
+expect('furniture sentence', !!makeQuiz('say')?.items.some(item => item.line?.hanzi === '椅子在那边。' && item.line.ru === 'Стул там.'), true)
+const stray = sayLines([{
+  id: 'furn-bad', topic: 'furn', hanzi: '床', pinyin: 'chuáng', ru: 'кровать', pos: '',
+  note: '', example: '我喝茶。', examplePy: 'wǒ hē chá.', exampleRu: 'Я пью чай.', uses: [], level: 1, custom: true,
+}])
+expect('sentence must contain word', stray.length, 0)
+deck.lv = furnLv
+deck.hsk = furnHsk
 const greetOnly = freshState()
 expect('greet examples', selectedWords(greetOnly).filter(word => word.example && word.exampleRu).length >= 4, true)
 expect('rate slow', edgeRate(0.8), '-25%')
