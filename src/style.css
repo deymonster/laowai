@@ -106,6 +106,7 @@ button { cursor: pointer; }
 .logo strong { display: block; font-size: 20px; }
 .logo small, .muted, .hint, .kbd, .goal { color: var(--muted); }
 .icon { width: 40px; height: 40px; margin-left: auto; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); }
+.icon.playing { display: inline-grid; place-items: center; background: var(--accent); color: var(--on); border-color: var(--accent); font-size: 15px; line-height: 1; }
 .icon.star.on { color: var(--t3); }
 .topics, .picks, .acts, .tools, .rowtop { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .chip.pick { height: auto; align-items: baseline; }
@@ -117,8 +118,10 @@ button { cursor: pointer; }
 .topics { margin: 14px 0; }
 .barlabel { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
 @media (max-width: 859px) {
-  .topics[aria-label="Списки"] { flex-wrap: nowrap; overflow-x: auto; }
-  .topics[aria-label="Списки"] .chip { flex: none; }
+  /* Overflow on the flex row itself does not pan in iOS Safari. */
+  .chipscroll { max-width: 100%; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; touch-action: pan-x pan-y; }
+  .chipscroll .topics { flex-wrap: nowrap; width: max-content; min-width: 100%; overflow: visible; }
+  .chipscroll .chip { flex: none; touch-action: pan-x pan-y; }
 }
 .chip, .seg button, .btn, .opt, .wordhead { border: 1px solid var(--line); background: var(--surface); border-radius: 12px; }
 .chip { display: inline-flex; gap: 6px; align-items: center; min-height: 38px; padding: 0 10px; }

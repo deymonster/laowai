@@ -11,6 +11,13 @@ let edgeAudio: HTMLAudioElement | null = null
 let dictAudio: HTMLAudioElement | null = null
 let blobAudio: HTMLAudioElement | null = null
 let notice: (message: string) => void = () => {}
+let onActivity: (text: string) => void = () => {}
+let active = ''
+let pendingToken = 0
+let systemBusy = false
+let systemUntil = 0
+let watchTimer = 0
+let onSystemCut: () => void = () => {}
 
 const COOL_MS = 45_000
 const blobs = new Map<string, string>()
@@ -20,12 +27,77 @@ export function setSpeakNotice(fn: (message: string) => void) {
   notice = fn
 }
 
+export function setSpeakActivity(fn: (text: string) => void) {
+  onActivity = fn
+}
+
+export function speakingNow(): string {
+  return active
+}
+
+function showSpeaking(text: string) {
+  const changed = active !== text
+  active = text
+  if (text) armWatch()
+  else if (watchTimer) {
+    window.clearInterval(watchTimer)
+    watchTimer = 0
+  }
+  if (changed) onActivity(text)
+}
+
+function armWatch() {
+  if (watchTimer || typeof window === 'undefined') return
+  watchTimer = window.setInterval(() => {
+    poke()
+    if (!active && watchTimer) {
+      window.clearInterval(watchTimer)
+      watchTimer = 0
+    }
+  }, 200)
+}
+
+function soundingAudio(): boolean {
+  for (const audio of [edgeAudio, dictAudio, blobAudio]) {
+    if (!audio || audio.paused || audio.ended || audio.muted || audio.volume <= 0) continue
+    const src = audio.currentSrc || audio.src
+    if (!src) continue
+    // A clip that has not moved yet is not sound. Treating it as sound
+    // cancelled the device voice and left the square button stuck.
+    if (audio.currentTime <= 0) continue
+    const duration = audio.duration
+    if (Number.isFinite(duration) && duration > 0 && audio.currentTime >= duration - 0.03) continue
+    return true
+  }
+  return false
+}
+
+function poke() {
+  if (!active) return
+  if (pendingToken !== 0 && pendingToken === token) return
+  systemBusy = systemBusy && Date.now() <= systemUntil
+  if (systemBusy || soundingAudio()) return
+  showSpeaking('')
+}
+
+export function stopSpeak() {
+  token += 1
+  pendingToken = 0
+  dropPlayers()
+  silenceSystem()
+  showSpeaking('')
+}
+
 function pickVoice() {
   if (!('speechSynthesis' in window)) return
   const list = speechSynthesis.getVoices()
-  voice = list.find(item => /^zh[-_]CN/i.test(item.lang))
-    || list.find(item => /^zh/i.test(item.lang))
-    || list.find(item => /chinese|mandarin|ting|xiaoxiao|yunxi|中文|普通话/i.test(item.name))
+  // Eddy, Flo, Grandpa and the other macOS novelty voices match zh-CN first and sound muffled.
+  const usable = list.filter(item => !/^(eddy|flo|grandma|grandpa|reed|rocko|sandy|shelley)\b/i.test(item.name))
+  const pool = usable.length ? usable : list
+  voice = pool.find(item => /ting-?ting|婷婷|meijia|美佳|sinji|xiaoxiao|yunxi/i.test(item.name))
+    || pool.find(item => /^zh[-_]CN/i.test(item.lang))
+    || pool.find(item => /^zh/i.test(item.lang))
+    || pool.find(item => /chinese|mandarin|中文|普通话/i.test(item.name))
     || null
 }
 
@@ -42,10 +114,23 @@ function cooling(until: number): boolean {
   return Date.now() < until
 }
 
-function player(kind: 'edge' | 'dict' | 'blob'): HTMLAudioElement {
-  if (kind === 'edge') return edgeAudio ??= new Audio()
-  if (kind === 'dict') return dictAudio ??= new Audio()
-  return blobAudio ??= new Audio()
+function mount(kind: 'edge' | 'dict' | 'blob'): HTMLAudioElement {
+  const previous = kind === 'edge' ? edgeAudio : kind === 'dict' ? dictAudio : blobAudio
+  if (previous) {
+    previous.onerror = null
+    previous.onplaying = null
+    try { previous.pause() } catch { /* already idle */ }
+    previous.removeAttribute('src')
+  }
+  const audio = new Audio()
+  audio.preload = 'auto'
+  const settled = () => poke()
+  audio.addEventListener('ended', settled)
+  audio.addEventListener('pause', settled)
+  if (kind === 'edge') edgeAudio = audio
+  else if (kind === 'dict') dictAudio = audio
+  else blobAudio = audio
+  return audio
 }
 
 function drop(audio: HTMLAudioElement | null) {
@@ -68,68 +153,109 @@ function dropPlayers() {
 
 function silenceSystem() {
   systemGen += 1
+  systemBusy = false
+  systemUntil = 0
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
   try { speechSynthesis.cancel() } catch { /* unavailable */ }
 }
 
-function playOn(audio: HTMLAudioElement, url: string, playbackRate: number, timeoutMs: number, current: number, generation: number): Promise<'ok' | 'stale' | 'fail'> {
-  return new Promise(resolve => {
-    if (current !== token || generation !== playGen) {
-      resolve('stale')
+interface PendingClip {
+  audio: HTMLAudioElement
+  backup: boolean
+  result: Promise<'ok' | 'stale' | 'fail'>
+  promote: () => void
+  stop: () => void
+}
+
+function beginClip(kind: 'edge' | 'dict' | 'blob', url: string, playbackRate: number, backup: boolean, timeoutMs: number, current: number, generation: number): PendingClip {
+  const audio = mount(kind)
+  let settled = false
+  let probe = 0
+  let resolve: (result: 'ok' | 'stale' | 'fail') => void = () => {}
+  const result = new Promise<'ok' | 'stale' | 'fail'>(done => { resolve = done })
+  const finish = (value: 'ok' | 'stale' | 'fail') => {
+    if (settled) return
+    settled = true
+    window.clearTimeout(timer)
+    window.clearTimeout(probe)
+    audio.onerror = null
+    audio.onplaying = null
+    audio.onloadedmetadata = null
+    audio.ondurationchange = null
+    audio.onended = null
+    audio.onvolumechange = null
+    const live = current === token && generation === playGen
+    if (!live || value !== 'ok') {
+      audio.loop = false
+      try { audio.pause() } catch { /* already idle */ }
+      audio.removeAttribute('src')
+    }
+    resolve(live ? value : 'stale')
+  }
+  const heard = () => !audio.muted && audio.volume > 0
+  const clipLength = () => {
+    if (Number.isFinite(audio.duration) && audio.duration > 0) return audio.duration
+    if (audio.ended && Number.isFinite(audio.currentTime) && audio.currentTime > 0) return audio.currentTime
+    return 0
+  }
+  const rejectIfShort = () => {
+    if (!heard()) return false
+    const length = clipLength()
+    if (!(length > 0 && length < 0.2)) return false
+    finish('fail')
+    return true
+  }
+  const succeed = () => {
+    if (settled || !heard() || audio.paused || audio.ended) return
+    if (rejectIfShort()) return
+    const length = clipLength()
+    if (audio.currentTime > 0.02 && (length === 0 || length >= 0.2)) {
+      finish('ok')
       return
     }
-    let settled = false
-    let probe = 0
-    const finish = (result: 'ok' | 'stale' | 'fail') => {
-      if (settled) return
-      settled = true
-      window.clearTimeout(timer)
-      window.clearTimeout(probe)
-      audio.onerror = null
-      audio.onplaying = null
-      audio.onloadedmetadata = null
-      audio.ondurationchange = null
-      audio.onended = null
-      const live = current === token && generation === playGen
-      if (!live || result !== 'ok') {
-        try { audio.pause() } catch { /* already idle */ }
-      }
-      resolve(live ? result : 'stale')
-    }
-    const timer = window.setTimeout(() => finish('fail'), timeoutMs)
-    const clipLength = () => {
-      if (Number.isFinite(audio.duration) && audio.duration > 0) return audio.duration
-      if (audio.ended && Number.isFinite(audio.currentTime) && audio.currentTime > 0) return audio.currentTime
-      return 0
-    }
-    const rejectIfShort = () => {
-      const length = clipLength()
-      if (!(length > 0 && length < 0.2)) return false
-      finish('fail')
-      return true
-    }
-    audio.onerror = () => finish('fail')
-    audio.onloadedmetadata = () => { rejectIfShort() }
-    audio.ondurationchange = () => { rejectIfShort() }
-    audio.onended = () => { rejectIfShort() }
-    audio.onplaying = () => {
+    if (probe) return
+    const check = () => {
+      probe = 0
+      if (settled || !heard() || audio.paused || audio.ended) return
       if (rejectIfShort()) return
-      if (clipLength() >= 0.2) {
-        finish('ok')
+      if (audio.currentTime > 0.02) finish('ok')
+      else probe = window.setTimeout(check, 200)
+    }
+    probe = window.setTimeout(check, 200)
+  }
+  const timer = window.setTimeout(() => finish('fail'), timeoutMs)
+  audio.onerror = () => finish('fail')
+  audio.onloadedmetadata = () => { rejectIfShort() }
+  audio.ondurationchange = () => { rejectIfShort() }
+  audio.onended = () => { rejectIfShort() }
+  audio.onplaying = () => succeed()
+  audio.onvolumechange = () => succeed()
+  audio.muted = backup
+  audio.volume = backup ? 0 : 1
+  audio.loop = backup
+  try { audio.playbackRate = playbackRate } catch { /* metadata is not ready yet */ }
+  audio.src = url
+  const started = audio.play()
+  if (started) void started.catch(() => finish('fail'))
+  return {
+    audio,
+    backup,
+    result,
+    promote() {
+      if (settled) return
+      audio.loop = false
+      audio.muted = false
+      audio.volume = 1
+      try { if (audio.currentTime > 0.05) audio.currentTime = 0 } catch { /* not seekable yet */ }
+      if (!audio.paused && !audio.ended) {
+        succeed()
         return
       }
-      probe = window.setTimeout(() => {
-        if (settled) return
-        if (rejectIfShort()) return
-        finish('ok')
-      }, 250)
-    }
-    try { audio.pause() } catch { /* already idle */ }
-    audio.src = url
-    audio.playbackRate = playbackRate
-    const started = audio.play()
-    if (started) void started.catch(() => finish('fail'))
-  })
+      const again = audio.play()
+      if (again) void again.catch(() => finish('fail'))
+    },
+    stop() { finish('stale') },
+  }
 }
 
 function speakSystem(text: string, rate: number): boolean {
@@ -141,6 +267,20 @@ function speakSystem(text: string, rate: number): boolean {
   utterance.rate = Math.max(0.4, Math.min(1.6, 0.92 * rate))
   const synth = window.speechSynthesis
   const generation = ++systemGen
+  systemBusy = true
+  systemUntil = Date.now() + Math.min(25_000, 1600 + [...text].length * 700)
+  const finishSystem = () => {
+    if (generation !== systemGen) return
+    systemBusy = false
+    poke()
+  }
+  utterance.onend = finishSystem
+  utterance.onerror = event => {
+    if (generation !== systemGen) return
+    // A remote clip can steal the audio session before it has made any sound.
+    if (event.error === 'interrupted') onSystemCut()
+    finishSystem()
+  }
   const say = () => {
     if (generation !== systemGen) return
     synth.speak(utterance)
@@ -206,28 +346,6 @@ export function warm(text: string, pinyin = '') {
   warming.set(key, job)
 }
 
-type Source = 'edge' | 'dict'
-
-function firstPlaying(jobs: Promise<Source | null>[]): Promise<Source | null> {
-  if (!jobs.length) return Promise.resolve(null)
-  return new Promise(resolve => {
-    let left = jobs.length
-    let settled = false
-    for (const job of jobs) {
-      void job.then(source => {
-        if (settled) return
-        if (source) {
-          settled = true
-          resolve(source)
-          return
-        }
-        left -= 1
-        if (left === 0) resolve(null)
-      })
-    }
-  })
-}
-
 function remoteLost(spoke: boolean) {
   if (noticed) return
   noticed = true
@@ -238,51 +356,73 @@ export async function speak(text: string, pinyin = '') {
   const clean = text.trim()
   if (!clean) return
   const current = ++token
+  pendingToken = current
   dropPlayers()
+  showSpeaking(clean)
   const rate = state.settings.rate || 1
   const mode = state.settings.voice
-  if (mode === 'system') {
-    speakSystem(clean, rate)
-    return
+  let retried = false
+  onSystemCut = () => {
+    if (retried || token !== current) return
+    retried = true
+    window.setTimeout(() => {
+      if (token !== current || soundingAudio()) return
+      if (!('speechSynthesis' in window)) return
+      if (speechSynthesis.speaking || speechSynthesis.pending) return
+      speakSystem(clean, rate)
+    }, 80)
   }
-  const key = clipKey(clean, rate)
-  const ready = blobs.get(key)
-  if (ready) {
-    silenceSystem()
-    const played = await playOn(player('blob'), ready, 1, 1500, current, playGen)
-    if (played !== 'fail' || current !== token) return
+  try {
+    if (mode === 'system') {
+      speakSystem(clean, rate)
+      return
+    }
+    const edgeOpen = !cooling(edgeDownUntil)
+    const dictOpen = mode === 'dict' || !cooling(dictDownUntil)
+    const cached = mode === 'dict' ? undefined : blobs.get(clipKey(clean, rate))
+    // The device voice covers the wait. It is stopped only after a clip is audible.
+    const spoke = speakSystem(clean, rate)
+    if (!cached && !edgeOpen && !dictOpen) {
+      remoteLost(spoke)
+      return
+    }
+    const generation = playGen
+    // Every play() runs before the first await, while the click still counts.
+    // A backup stays muted so the faster male voice cannot cover Xiaoxiao.
+    const clips: PendingClip[] = []
+    if (cached) clips.push(beginClip('blob', cached, 1, false, 2000, current, generation))
+    else if (mode !== 'dict' && edgeOpen) clips.push(beginClip('edge', edgeUrl(clean, pinyin, rate), 1, false, 3600, current, generation))
+    else if (dictOpen) clips.push(beginClip('dict', dictUrl(clean), rate, false, 2500, current, generation))
+    const dictStarted = clips.some(clip => clip.audio === dictAudio)
+    if (dictOpen && !dictStarted) clips.push(beginClip('dict', dictUrl(clean), rate, true, 7000, current, generation))
+    if (mode === 'dict' && edgeOpen && !clips.some(clip => clip.audio === edgeAudio)) {
+      clips.push(beginClip('edge', edgeUrl(clean, pinyin, rate), 1, true, 3600, current, generation))
+    }
+    let won = false
+    for (const clip of clips) {
+      if (current !== token) return
+      if (clip.backup) clip.promote()
+      const result = await clip.result
+      if (current !== token || result === 'stale') return
+      if (result === 'ok') {
+        const remote = clip.audio === edgeAudio || clip.audio === blobAudio
+        if (remote) edgeDownUntil = 0
+        if (clip.audio === dictAudio) dictDownUntil = 0
+        for (const other of clips) if (other !== clip) other.stop()
+        silenceSystem()
+        won = true
+        break
+      }
+      if (clip.audio === edgeAudio) edgeDownUntil = Date.now() + COOL_MS
+      if (clip.audio === dictAudio) dictDownUntil = Date.now() + COOL_MS
+    }
+    if (!won && current === token) {
+      if ('speechSynthesis' in window && !speechSynthesis.speaking && !speechSynthesis.pending) speakSystem(clean, rate)
+      remoteLost(spoke)
+    }
+  } finally {
+    if (onSystemCut) onSystemCut = () => {}
+    if (pendingToken === current) pendingToken = 0
+    if (token === current) poke()
   }
-  if (current !== token) return
-  const edgeOpen = !cooling(edgeDownUntil)
-  const dictOpen = mode === 'dict' || !cooling(dictDownUntil)
-  const spoke = speakSystem(clean, rate)
-  if (!edgeOpen && !dictOpen) {
-    remoteLost(spoke)
-    return
-  }
-  const generation = playGen
-  const jobs: Promise<Source | null>[] = []
-  if (edgeOpen) {
-    jobs.push(playOn(player('edge'), edgeUrl(clean, pinyin, rate), 1, 1600, current, generation).then(result => {
-      if (result === 'ok') { edgeDownUntil = 0; return 'edge' as const }
-      if (result === 'fail') edgeDownUntil = Date.now() + COOL_MS
-      return null
-    }))
-  }
-  if (dictOpen) {
-    jobs.push(playOn(player('dict'), dictUrl(clean), rate, 1200, current, generation).then(result => {
-      if (result === 'ok') { dictDownUntil = 0; return 'dict' as const }
-      if (result === 'fail') dictDownUntil = Date.now() + COOL_MS
-      return null
-    }))
-  }
-  const winner = await firstPlaying(jobs)
-  if (current !== token) return
-  if (!winner) {
-    remoteLost(spoke)
-    return
-  }
-  playGen += 1
-  drop(winner === 'edge' ? dictAudio : edgeAudio)
-  silenceSystem()
 }

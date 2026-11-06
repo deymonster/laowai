@@ -37,11 +37,11 @@ function topicBar(): string {
 }
 
 function topicChips(): string {
-  return `<div class="topics" role="group" aria-label="Списки">${state.topics.map(topic => {
+  return `<div class="chipscroll"><div class="topics" role="group" aria-label="Списки">${state.topics.map(topic => {
     const on = state.lv.includes(topic.id)
     const count = topicCount(state, topic.id)
     return `<button type="button" class="chip${on ? ' on' : ''}" data-act="lv" data-n="${esc(topic.id)}" aria-pressed="${on}" aria-label="${esc(topic.name)}, ${count}" title="Слова в этом списке"><span>${esc(topic.name)}</span><small>${count}</small></button>`
-  }).join('')}</div>`
+  }).join('')}</div></div>`
 }
 
 function cells(word: Word): string {
@@ -79,7 +79,7 @@ export function writeGlossInner(): string {
 }
 
 function speakBtn(text: string, label: string, pinyin = ''): string {
-  return `<button type="button" class="icon" data-act="speak" data-t="${esc(text)}" data-py="${esc(pinyin)}" aria-label="${esc(label)}">▶</button>`
+  return `<button type="button" class="icon" data-act="speak" data-t="${esc(text)}" data-py="${esc(pinyin)}" data-label="${esc(label)}" aria-label="${esc(label)}">▶</button>`
 }
 
 export function dictHitHtml(hits: { hanzi: string; pinyin: string; ru: string }[]): string {

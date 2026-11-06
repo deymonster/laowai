@@ -4,7 +4,7 @@ import { lookupWord, type DictHit } from './dict'
 import { cleanGloss, esc, exampleFits, hanChars, studyExample, uid } from './han'
 import { analyze, compose, judge, prettifyPinyin, syllableAt, type Reading } from './pinyin'
 import { blankEditor, ui, type Editor, type QuizKind } from './session'
-import { setSpeakNotice, speak, warm } from './speech'
+import { setSpeakActivity, setSpeakNotice, speakingNow, speak, stopSpeak, warm } from './speech'
 import { makeQuiz } from './quiz'
 import { mountStroke, replayStroke, stepStroke } from './strokes'
 import { applyGrade, applyResult, buildQueue, findWord, selectedWords, shuffle } from './srs'
@@ -92,6 +92,7 @@ async function refreshWriteGloss() {
 }
 
 setSpeakNotice(message => toast(message))
+setSpeakActivity(() => paintSpeakButtons())
 
 function toast(message: string) {
   let el = document.getElementById('toast')
@@ -113,14 +114,42 @@ function applyTheme() {
   else document.documentElement.setAttribute('data-theme', theme)
 }
 
+function paintSpeakButtons() {
+  const current = speakingNow()
+  document.querySelectorAll<HTMLButtonElement>('[data-act="speak"]').forEach(button => {
+    const on = current !== '' && (button.dataset.t || '').trim() === current
+    button.classList.toggle('playing', on)
+    button.textContent = on ? '■' : '▶'
+    const label = button.dataset.label || 'Произнести'
+    button.setAttribute('aria-label', on ? 'Остановить' : label)
+    if (on) button.setAttribute('aria-pressed', 'true')
+    else button.removeAttribute('aria-pressed')
+  })
+}
+
+let revealingList = 0
+
+function revealCurrentList() {
+  revealingList += 1
+  document.querySelectorAll('.chipscroll').forEach(row => {
+    if (!(row instanceof HTMLElement)) return
+    const chip = row.querySelector('.chip[aria-pressed="true"]')
+    if (!(chip instanceof HTMLElement)) return
+    const rowBox = row.getBoundingClientRect()
+    const chipBox = chip.getBoundingClientRect()
+    if (chipBox.left < rowBox.left) row.scrollLeft -= rowBox.left - chipBox.left
+    else if (chipBox.right > rowBox.right) row.scrollLeft += chipBox.right - rowBox.right
+  })
+  revealingList -= 1
+}
+
 function draw() {
   const app = document.getElementById('app')
   if (!app) return
   app.innerHTML = renderApp()
   applyTheme()
   bindLive()
-  const currentList = document.querySelector('.topics[aria-label="Списки"] .chip[aria-pressed="true"]')
-  if (currentList instanceof HTMLElement) currentList.scrollIntoView({ inline: 'nearest', block: 'nearest' })
+  revealCurrentList()
   if (ui.view === 'write' && ui.writeMode === 'stroke' && !ui.type) {
     void mountStroke()
     void refreshWriteGloss()
@@ -131,6 +160,7 @@ function draw() {
   if (head) head.scrollIntoView({ block: 'start' })
   armClock()
   warmVisible()
+  paintSpeakButtons()
 }
 
 function warmVisible() {
@@ -366,18 +396,36 @@ function scheduleLookup(q: string) {
 }
 
 function bindLive() {
+  document.querySelectorAll('.chipscroll').forEach(row => {
+    if (!(row instanceof HTMLElement)) return
+    let dragged = false
+    let timer = 0
+    row.addEventListener('scroll', () => {
+      if (revealingList) return
+      dragged = true
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => { dragged = false }, 350)
+    })
+    row.addEventListener('click', event => {
+      if (!dragged) return
+      event.preventDefault()
+      event.stopPropagation()
+    })
+  })
   const search = document.getElementById('q') as HTMLInputElement | null
   search?.addEventListener('input', () => {
     ui.q = search.value
     ui.listExtra = 0
     const box = document.getElementById('results')
     if (box) box.innerHTML = listResults()
+    paintSpeakButtons()
   })
   const gfind = document.getElementById('gfind') as HTMLInputElement | null
   gfind?.addEventListener('input', () => {
     ui.gramQ = gfind.value
     const box = document.getElementById('grules')
     if (box) box.innerHTML = gramListHtml()
+    paintSpeakButtons()
   })
   const han = document.getElementById('f-han') as HTMLInputElement | null
   const example = document.getElementById('f-ex') as HTMLInputElement | null
@@ -671,8 +719,13 @@ async function act(name: string, el: HTMLElement) {
       const buttonText = el.dataset.t || ''
       const live = ui.view === 'edit' ? field('f-han').trim() : ''
       const wordButton = ui.view === 'edit' && (!buttonText || buttonText === live || buttonText === (ui.editor?.hanzi || ''))
-      const text = wordButton ? (live || buttonText) : buttonText
+      const text = (wordButton ? (live || buttonText) : buttonText).trim()
       const py = wordButton ? field('f-py') : (el.dataset.py || '')
+      if (el.classList.contains('playing')) {
+        stopSpeak()
+        return
+      }
+      if (text) el.dataset.t = text
       void speak(text, py)
       return
     }
