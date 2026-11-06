@@ -1,5 +1,6 @@
 import { HSK1_EXAMPLES } from './hsk1-examples'
 import { HSK2_EXAMPLES } from './hsk2-examples'
+import { HSK3_EXAMPLES } from './hsk3-examples'
 import type { Word } from './types'
 
 type Row = [string, number, string, string, string, string]
@@ -5467,6 +5468,7 @@ const NO_EXAMPLE = ['', '', ''] as const
 const BY_LEVEL: Record<number, Record<string, readonly [string, string, string]>> = {
   1: HSK1_EXAMPLES,
   2: HSK2_EXAMPLES,
+  3: HSK3_EXAMPLES,
 }
 
 export const HSK_WORDS: Word[] = ROWS.map(([id, level, hanzi, pinyin, ru, pos]) => {

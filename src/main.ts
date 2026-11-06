@@ -997,7 +997,7 @@ async function act(name: string, el: HTMLElement) {
     case 'flag': {
       const key = el.dataset.k
       const checked = (el as HTMLInputElement).checked
-      if (key === 'pyFront' || key === 'strict') state.settings[key] = checked
+      if (key === 'pyFront' || key === 'strict' || key === 'sayShow') state.settings[key] = checked
       save(); break
     }
     case 'exp': exportFile(); return

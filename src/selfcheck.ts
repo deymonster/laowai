@@ -10,6 +10,7 @@ import { applyGrade, getP, planGrade, selectedWords, today } from './srs'
 import { HSK_WORDS } from './hsk-list'
 import { SEED, TOPICS } from './seed'
 import { adoptRaw, freshState, state as deck } from './store'
+import { APP_VERSION } from './version'
 
 const expect = (name: string, got: unknown, want: unknown) => {
   if (got !== want) {
@@ -98,6 +99,8 @@ expect('grammar ids', new Set(GRAMMAR.map(rule => rule.id)).size, GRAMMAR.length
 expect('hsk bands', HSK.length, 6)
 for (const level of HSK) expect(`hsk ${level} rules`, GRAMMAR.filter(rule => rule.level === level).length >= 4, true)
 expect('goal default', freshState().settings.goal, 0)
+expect('say show default', freshState().settings.sayShow, true)
+expect('app version', APP_VERSION, '1.0.7')
 expect('g1 level', freshState().words.find(word => word.id === 'g1')?.level, 1)
 expect('bank level', freshState().words.find(word => word.id === 'r1')?.level, 3)
 expect('default hsk', freshState().hsk.join(','), '1,2,3,4,5,6')
@@ -194,8 +197,9 @@ const hskOnly = freshState()
 hskOnly.lv = ['hsk1']
 expect('hsk1 examples', selectedWords(hskOnly).filter(word => word.example && word.exampleRu && word.examplePy).length, 500)
 expect('hsk2 examples', HSK_WORDS.filter(word => word.level === 2 && word.example && word.exampleRu && word.examplePy).length, 772)
-expect('hsk above 2 examples', HSK_WORDS.filter(word => word.level > 2 && word.example).length, 0)
-for (const level of [1, 2]) {
+expect('hsk3 examples', HSK_WORDS.filter(word => word.level === 3 && word.example && word.exampleRu && word.examplePy).length, 973)
+expect('hsk above 3 examples', HSK_WORDS.filter(word => word.level > 3 && word.example).length, 0)
+for (const level of [1, 2, 3]) {
   const seenRu = new Map<string, string>()
   for (const word of HSK_WORDS) {
     if (word.level !== level) continue
@@ -240,7 +244,11 @@ expect('hsk2 phrase quiz', canQuiz('sent'), true)
 expect('hsk2 cloze quiz', canQuiz('cloze'), true)
 expect('hsk2 say quiz', canQuiz('say'), true)
 deck.lv = ['hsk3']
-expect('hsk3 phrase waits', canQuiz('sent'), false)
+expect('hsk3 phrase quiz', canQuiz('sent'), true)
+expect('hsk3 cloze quiz', canQuiz('cloze'), true)
+expect('hsk3 say quiz', canQuiz('say'), true)
+deck.lv = ['hsk4']
+expect('hsk4 phrase waits', canQuiz('sent'), false)
 deck.lv = keptLv
 adoptRaw({
   v: 1,

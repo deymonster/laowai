@@ -32,6 +32,7 @@ export type Settings = {
   perDay: number
   goal: number
   theme: 'auto' | 'light' | 'dark' | 'jade' | 'paper' | 'ink'
+  sayShow: boolean
 }
 
 export type State = {

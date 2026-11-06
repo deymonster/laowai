@@ -8,7 +8,7 @@ const KEY = 'zici-v1'
 export const RATES = [0.75, 1, 1.25, 1.5]
 
 export function defaultSettings(): Settings {
-  return { dir: 'h2r', pyFront: false, strict: false, rate: 1, voice: 'auto', tc: 1, perDay: 20, goal: 0, theme: 'auto' }
+  return { dir: 'h2r', pyFront: false, strict: false, rate: 1, voice: 'auto', tc: 1, perDay: 20, goal: 0, theme: 'auto', sayShow: true }
 }
 
 export function freshState(): State {
@@ -109,6 +109,7 @@ function normalize(raw: unknown): State {
     if (settings.dir === 'h2r' || settings.dir === 'r2h') base.settings.dir = settings.dir
     if (typeof settings.pyFront === 'boolean') base.settings.pyFront = settings.pyFront
     if (typeof settings.strict === 'boolean') base.settings.strict = settings.strict
+    if (typeof settings.sayShow === 'boolean') base.settings.sayShow = settings.sayShow
     if (RATES.includes(Number(settings.rate))) base.settings.rate = Number(settings.rate)
     if (settings.voice === 'auto' || settings.voice === 'dict' || settings.voice === 'system') base.settings.voice = settings.voice
     if (settings.tc === 0 || settings.tc === 1 || settings.tc === 2) base.settings.tc = settings.tc
