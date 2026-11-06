@@ -24,11 +24,15 @@ export function alignHeard(target: string, heard: string): DiffPiece[] {
   const rev: DiffPiece[] = []
   let i = n
   let j = m
+  // Равная цена: сначала хвост эталона, чтобы услышанное осталось напротив начала фразы.
   while (i > 0 || j > 0) {
     if (i > 0 && j > 0 && a[i - 1] === b[j - 1] && dp[i][j] === dp[i - 1][j - 1]) {
       rev.push({ text: b[j - 1], bad: false, expect: a[i - 1], at: i - 1 })
       i -= 1
       j -= 1
+    } else if (i > 0 && dp[i][j] === dp[i - 1][j] + 1) {
+      rev.push({ text: '·', bad: true, expect: a[i - 1], at: i - 1 })
+      i -= 1
     } else if (i > 0 && j > 0 && dp[i][j] === dp[i - 1][j - 1] + 1) {
       rev.push({ text: b[j - 1], bad: true, expect: a[i - 1], at: i - 1 })
       i -= 1
@@ -36,9 +40,12 @@ export function alignHeard(target: string, heard: string): DiffPiece[] {
     } else if (j > 0 && dp[i][j] === dp[i][j - 1] + 1) {
       rev.push({ text: b[j - 1], bad: true, expect: '', at: -1 })
       j -= 1
-    } else {
+    } else if (i > 0) {
       rev.push({ text: '·', bad: true, expect: a[i - 1], at: i - 1 })
       i -= 1
+    } else {
+      rev.push({ text: b[j - 1] || '·', bad: true, expect: '', at: -1 })
+      j -= 1
     }
   }
   rev.reverse()
