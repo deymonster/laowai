@@ -42,12 +42,13 @@ export function alignHeard(target: string, heard: string): DiffPiece[] {
   return rev
 }
 
+type ResultRow = ArrayLike<{ transcript: string }> & { isFinal?: boolean }
 type Recog = {
   lang: string
   maxAlternatives: number
   interimResults: boolean
   continuous: boolean
-  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }> & { length: number }> }) => void) | null
+  onresult: ((event: { results: ArrayLike<ResultRow> }) => void) | null
   onerror: ((event: { error: string }) => void) | null
   onend: (() => void) | null
   start: () => void
@@ -67,11 +68,41 @@ export function pronounceSupport(): 'full' | 'webkit' | 'none' {
   return 'none'
 }
 
-let active: Recog | null = null
+export function levelsFromBins(bins: ArrayLike<number>, count: number): number[] {
+  const out: number[] = []
+  const step = Math.max(1, Math.floor(bins.length / Math.max(1, count)))
+  for (let i = 0; i < count; i++) {
+    let sum = 0
+    for (let k = 0; k < step; k++) sum += bins[i * step + k] || 0
+    out.push(Math.min(1, sum / step / 255))
+  }
+  return out
+}
 
-export function stopListen() {
-  const rec = active
-  active = null
+type ListenHandlers = {
+  onText: (text: string) => void
+  onBars: (levels: number[] | null) => void
+  onEnd: (result: { heard: string; ok: boolean }) => void
+  onError: (message: string) => void
+}
+
+type Live = {
+  rec: Recog | null
+  done: boolean
+  text: string
+  target: string
+  restarts: number
+  settle: number
+  max: number
+  stopMeter: () => void
+  onText: ListenHandlers['onText']
+  onEnd: ListenHandlers['onEnd']
+  onError: ListenHandlers['onError']
+}
+
+let live: Live | null = null
+
+function closeRec(rec: Recog | null) {
   if (!rec) return
   rec.onresult = null
   rec.onerror = null
@@ -79,44 +110,169 @@ export function stopListen() {
   try { rec.stop() } catch { /* already idle */ }
 }
 
-export function listenOnce(expectHan: string, onDone: (result: { heard: string; ok: boolean }) => void, onError: (message: string) => void) {
+function shutdown(): Live | null {
+  const cur = live
+  if (!cur || cur.done) return null
+  cur.done = true
+  window.clearTimeout(cur.settle)
+  window.clearTimeout(cur.max)
+  cur.stopMeter()
+  const rec = cur.rec
+  cur.rec = null
+  live = null
+  closeRec(rec)
+  return cur
+}
+
+export function listening(): boolean {
+  return !!live && !live.done
+}
+
+export function stopListen() {
+  shutdown()
+}
+
+export function finishListen() {
+  const cur = shutdown()
+  if (!cur) return
+  const heard = cur.text.trim()
+  cur.onEnd({ heard, ok: !!cur.target && hanPlain(heard) === cur.target })
+}
+
+function openMeter(onBars: (levels: number[] | null) => void): () => void {
+  let dead = false
+  let raf = 0
+  let stream: MediaStream | null = null
+  let ctx: AudioContext | null = null
+  const stop = () => {
+    dead = true
+    window.cancelAnimationFrame(raf)
+    stream?.getTracks().forEach(track => track.stop())
+    stream = null
+    void ctx?.close()
+    ctx = null
+  }
+  const media = navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices)
+  if (!media) {
+    onBars(null)
+    return stop
+  }
+  void media({ audio: { echoCancellation: true, noiseSuppression: true } }).then(next => {
+    if (dead) {
+      next.getTracks().forEach(track => track.stop())
+      return
+    }
+    stream = next
+    const Ctx = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!Ctx) {
+      onBars(null)
+      return
+    }
+    ctx = new Ctx()
+    void ctx.resume()
+    const source = ctx.createMediaStreamSource(stream)
+    const analyser = ctx.createAnalyser()
+    analyser.fftSize = 256
+    analyser.smoothingTimeConstant = 0.65
+    source.connect(analyser)
+    const data = new Uint8Array(analyser.frequencyBinCount)
+    const tick = () => {
+      if (dead) return
+      analyser.getByteFrequencyData(data)
+      onBars(levelsFromBins(data, 12))
+      raf = window.requestAnimationFrame(tick)
+    }
+    tick()
+  }).catch(() => { if (!dead) onBars(null) })
+  return stop
+}
+
+export function listenLive(expectHan: string, handlers: ListenHandlers) {
   const host = window as RecogWindow
   const Ctor = host.SpeechRecognition || host.webkitSpeechRecognition
-  if (!Ctor) return
   stopListen()
+  if (!Ctor) {
+    handlers.onError('В этом браузере нет распознавания речи.')
+    return
+  }
   const rec = new Ctor()
-  active = rec
+  const cur: Live = {
+    rec, done: false, text: '', target: hanPlain(expectHan), restarts: 0, settle: 0, max: 0,
+    stopMeter: () => {}, onText: handlers.onText, onEnd: handlers.onEnd, onError: handlers.onError,
+  }
+  live = cur
+  cur.stopMeter = openMeter(handlers.onBars)
   rec.lang = 'zh-CN'
   rec.maxAlternatives = 3
-  rec.interimResults = false
-  rec.continuous = false
-  let finished = false
+  rec.interimResults = true
+  rec.continuous = true
   const fail = (message: string) => {
-    if (finished || active !== rec) return
-    finished = true
-    active = null
-    onError(message)
+    const saved = shutdown()
+    saved?.onError(message)
+  }
+  const arm = () => {
+    window.clearTimeout(cur.settle)
+    if (!hanPlain(cur.text)) return
+    cur.settle = window.setTimeout(() => {
+      if (live !== cur || cur.done || !hanPlain(cur.text)) return
+      finishListen()
+    }, 700)
   }
   rec.onresult = event => {
-    if (finished || active !== rec) return
-    finished = true
-    active = null
-    const row = event.results[0]
-    const alts: string[] = []
-    if (row) for (let i = 0; i < row.length; i++) alts.push(row[i]?.transcript || '')
-    const target = hanPlain(expectHan)
-    const hit = alts.find(item => hanPlain(item) === target)
-    const heard = hit || alts[0] || ''
-    onDone({ heard, ok: !!target && hanPlain(heard) === target })
+    if (live !== cur || cur.done) return
+    let finalText = ''
+    let interim = ''
+    let lastFinal = false
+    for (let i = 0; i < event.results.length; i++) {
+      const row = event.results[i]
+      const alts: string[] = []
+      for (let j = 0; j < row.length; j++) alts.push(row[j]?.transcript || '')
+      const hit = alts.find(item => hanPlain(item) === cur.target)
+      const text = hit || alts[0] || ''
+      if (row.isFinal) {
+        finalText += text
+        lastFinal = true
+      } else interim += text
+    }
+    cur.text = (finalText + interim).trim()
+    cur.onText(cur.text)
+    if (lastFinal) arm()
+    else window.clearTimeout(cur.settle)
   }
   rec.onerror = event => {
+    if (live !== cur || cur.done) return
     const code = event.error
-    if (code === 'not-allowed' || code === 'service-not-allowed') fail('Нет доступа к микрофону.')
-    else if (code === 'no-speech') fail('Речь не слышно. Попробуйте ещё раз.')
-    else if (code === 'network') fail('Нет связи с распознаванием.')
-    else if (code === 'aborted') return
-    else fail('Не удалось распознать.')
+    if (code === 'aborted' || code === 'no-speech') return
+    if (code === 'not-allowed' || code === 'service-not-allowed') fail('Нет доступа к микрофону. Разрешите его в браузере и нажмите ещё раз.')
+    else if (code === 'network') fail('Нет связи с распознаванием. В Chrome это сервис Google.')
+    else if (code === 'audio-capture') {
+      cur.stopMeter()
+      cur.stopMeter = () => {}
+      handlers.onBars(null)
+      return
+    } else fail('Не удалось распознать. Нажмите ещё раз.')
   }
-  rec.onend = () => fail('Речь не слышно. Попробуйте ещё раз.')
-  try { rec.start() } catch { fail('Не удалось включить микрофон.') }
+  // Chrome сам закрывает сессию, пока фраза ещё звучит. Пока человек не нажал «Готово», сессию поднимаем снова.
+  rec.onend = () => {
+    if (live !== cur || cur.done) return
+    if (cur.restarts < 3) {
+      cur.restarts += 1
+      try { rec.start(); return } catch { /* сдаёмся ниже */ }
+    }
+    if (hanPlain(cur.text)) finishListen()
+    else fail('Речь не слышно. Попробуйте ещё раз.')
+  }
+  cur.max = window.setTimeout(() => {
+    if (live !== cur || cur.done) return
+    if (hanPlain(cur.text)) finishListen()
+    else fail('Речь не слышно. Попробуйте ещё раз.')
+  }, 15000)
+  try { rec.start() } catch {
+    try {
+      rec.continuous = false
+      rec.start()
+    } catch {
+      fail('Не удалось включить микрофон.')
+    }
+  }
 }

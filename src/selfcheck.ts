@@ -1,5 +1,5 @@
 import { cleanGloss, clozeText, exampleFits, ruNoun, studyExample } from './han'
-import { alignHeard } from './pronounce'
+import { alignHeard, levelsFromBins } from './pronounce'
 import { GRAMMAR, HSK } from './grammar'
 import { dictionaryQuery, parseBkrs } from '../server/bkrs'
 import { assertEdgeOpen, edgeCooling, edgeRate, noteEdgeFailure, noteEdgeSuccess } from '../server/edge-policy'
@@ -100,7 +100,7 @@ expect('hsk bands', HSK.length, 6)
 for (const level of HSK) expect(`hsk ${level} rules`, GRAMMAR.filter(rule => rule.level === level).length >= 4, true)
 expect('goal default', freshState().settings.goal, 0)
 expect('say show default', freshState().settings.sayShow, true)
-expect('app version', APP_VERSION, '1.0.8')
+expect('app version', APP_VERSION, '1.0.9')
 expect('g1 level', freshState().words.find(word => word.id === 'g1')?.level, 1)
 expect('bank level', freshState().words.find(word => word.id === 'r1')?.level, 3)
 expect('default hsk', freshState().hsk.join(','), '1,2,3,4,5,6')
@@ -313,6 +313,13 @@ const swapped = alignHeard('我喝茶', '我吃茶')
 expect('align swap', swapped.map(piece => piece.text).join(''), '我吃茶')
 expect('align swap mark', swapped[1]?.bad, true)
 expect('align gap', alignHeard('我喝茶', '我茶').some(piece => piece.text === '·'), true)
+const silent = levelsFromBins(new Uint8Array(24), 12)
+expect('silent meter', silent.length === 12 && silent.every(level => level === 0), true)
+const loud = new Uint8Array(24)
+loud[0] = 255
+loud[1] = 255
+const peaked = levelsFromBins(loud, 12)
+expect('loud meter', peaked[0] === 1 && peaked[11] === 0, true)
 expect('hsk4 fuller', GRAMMAR.filter(rule => rule.level === 4).length >= 16, true)
 expect('hsk5 fuller', GRAMMAR.filter(rule => rule.level === 5).length >= 16, true)
 expect('hsk6 fuller', GRAMMAR.filter(rule => rule.level === 6).length >= 16, true)

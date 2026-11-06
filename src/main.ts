@@ -11,7 +11,7 @@ import { applyGrade, applyResult, buildQueue, findWord, selectedWords, shuffle }
 import { adoptRaw, load, resetState, save, state } from './store'
 import type { Sample, Word } from './types'
 import { gramListHtml, dictHitHtml, editorFromWord, listResults, readingExtras, renderApp, writeGlossInner } from './view'
-import { listenOnce, stopListen } from './pronounce'
+import { finishListen, listenLive, listening, stopListen } from './pronounce'
 
 let toastTimer = 0
 let wordToken = 0
@@ -682,9 +682,11 @@ function exportFile() {
 async function act(name: string, el: HTMLElement) {
   if (ui.view === 'edit' && !['pypick', 'speak', 'pickword'].includes(name)) readEditor()
   switch (name) {
-    case 'home': ui.view = 'study'; ui.study = null; ui.quiz = null; ui.type = null; break
-    case 'settings': ui.view = 'set'; break
+    case 'home': stopListen(); ui.hear = null; ui.view = 'study'; ui.study = null; ui.quiz = null; ui.type = null; break
+    case 'settings': stopListen(); ui.hear = null; ui.view = 'set'; break
     case 'tab': {
+      stopListen()
+      ui.hear = null
       ui.view = (el.dataset.v as typeof ui.view) || 'study'
       ui.study = null; ui.quiz = null; ui.type = null
       break
@@ -888,27 +890,75 @@ async function act(name: string, el: HTMLElement) {
     }
     case 'qnext': {
       stopListen()
+      ui.hear = null
+      ui.hearNote = ''
       if (ui.quiz) ui.quiz.i += 1
       draw()
       speakQuizItem()
       return
     }
-    case 'qstop': stopListen(); ui.quiz = null; break
+    case 'qstop': stopListen(); ui.hear = null; ui.hearNote = ''; ui.quiz = null; break
     case 'sayrec': {
       const quiz = ui.quiz
       const item = quiz?.items[quiz.i]
       const word = item ? findWord(state, item.id) : undefined
       if (!quiz || quiz.kind !== 'say' || !item || !word || item.mark) return
+      if (listening()) {
+        finishListen()
+        return
+      }
+      stopSpeak()
       const line = lineOf(word, item)
-      listenOnce(line.hanzi, result => {
-        if (ui.quiz !== quiz || quiz.items[quiz.i] !== item) return
-        item.heard = result.heard
-        item.mark = result.ok ? 'ok' : 'off'
-        item.pick = result.ok ? 1 : 0
-        if (result.ok) quiz.ok += 1
-        else quiz.bad.push(item.id)
-        draw()
-      }, message => toast(message))
+      ui.hear = { text: '' }
+      ui.hearNote = ''
+      draw()
+      const paint = (levels: number[] | null) => {
+        const host = document.getElementById('vu')
+        if (!host) return
+        const bars = host.querySelectorAll('i')
+        const loud = !!levels && Math.max(...levels) >= 0.08
+        if (!loud) {
+          host.classList.add('idle')
+          bars.forEach(bar => { (bar as HTMLElement).style.height = '' })
+          return
+        }
+        host.classList.remove('idle')
+        levels.forEach((level, index) => {
+          const bar = bars[index] as HTMLElement | undefined
+          if (bar) bar.style.height = `${8 + Math.round(level * 40)}px`
+        })
+      }
+      listenLive(line.hanzi, {
+        onText: text => {
+          if (!ui.hear) return
+          ui.hear.text = text
+          const el = document.getElementById('heardlive')
+          if (el) el.textContent = text || 'Слушаю…'
+        },
+        onBars: paint,
+        onEnd: result => {
+          ui.hear = null
+          if (ui.quiz !== quiz || quiz.items[quiz.i] !== item || item.mark) return
+          if (!result.heard.trim()) {
+            ui.hearNote = 'Ничего не разобрал. Говорите ближе к микрофону и нажмите ещё раз.'
+            draw()
+            return
+          }
+          item.heard = result.heard
+          item.mark = result.ok ? 'ok' : 'off'
+          item.pick = result.ok ? 1 : 0
+          ui.hearNote = ''
+          if (result.ok) quiz.ok += 1
+          else quiz.bad.push(item.id)
+          draw()
+        },
+        onError: message => {
+          ui.hear = null
+          if (ui.quiz !== quiz || quiz.items[quiz.i] !== item || item.mark) return
+          ui.hearNote = message
+          draw()
+        },
+      })
       return
     }
     case 'saymark': {

@@ -230,19 +230,28 @@ function diffHtml(target: string, heard: string): string {
   return alignHeard(target, heard).map(piece => piece.bad ? `<span class="miss">${esc(piece.text)}</span>` : esc(piece.text)).join('')
 }
 
+function meter(): string {
+  const bars = Array.from({ length: 12 }, () => '<i></i>').join('')
+  const text = ui.hear?.text || 'Слушаю…'
+  return `<div class="vu idle" id="vu" aria-hidden="true">${bars}</div><p class="heard" id="heardlive" lang="zh-Hans" aria-live="polite">${esc(text)}</p><p class="muted center">Говорите. Полоски — микрофон, строка — распознанный текст.</p>`
+}
+
 function sayCard(word: Word, item: QuizItem): string {
   const support = pronounceSupport()
   const done = item.mark != null
+  const hearing = !!ui.hear && !done
   const note = support === 'none'
     ? 'В этом браузере нет распознавания речи. Можно послушать и отметить самому.'
     : support === 'webkit'
       ? 'Запись уходит в распознавание браузера. В Safari китайская речь часто обрывается.'
       : 'Запись уходит в распознавание браузера. В Chrome это сервис Google.'
   const phrase = lineOf(word, item)
-  const heard = item.mark === 'ok' || item.mark === 'off' ? `<p class="heard" lang="zh-Hans">${diffHtml(phrase.hanzi, item.heard || '')}</p>` : ''
+  const raw = item.heard ? `<p class="muted center">Услышано: ${esc(item.heard)}</p>` : ''
+  const heard = item.mark === 'ok' || item.mark === 'off' ? `<p class="heard" lang="zh-Hans">${diffHtml(phrase.hanzi, item.heard || '')}</p>${raw}` : ''
   const verdict = item.mark === 'ok' ? '<p>Совпало.</p>' : item.mark === 'off' ? '<p>Есть расхождения.</p>' : item.mark === 'skip' ? '<p>Без проверки микрофоном.</p>' : ''
-  const mic = support !== 'none' && !done ? '<button type="button" class="btn" data-act="sayrec">Повторить</button>' : ''
-  const self = support === 'none' && !done ? '<div class="grades"><button type="button" data-act="saymark" data-v="hear">Слышу</button><button type="button" data-act="saymark" data-v="miss">Не слышу</button></div>' : ''
+  const mic = support !== 'none' && !done ? `<button type="button" class="btn${hearing ? ' primary' : ''}" data-act="sayrec">${hearing ? 'Готово' : 'Повторить'}</button>` : ''
+  const self = !done && !hearing && (support === 'none' || ui.hearNote) ? '<div class="grades"><button type="button" data-act="saymark" data-v="hear">Слышу</button><button type="button" data-act="saymark" data-v="miss">Не слышу</button></div>' : ''
+  const warn = ui.hearNote && !done ? `<p class="warn">${esc(ui.hearNote)}</p>` : ''
   const last = ui.quiz ? ui.quiz.i + 1 >= ui.quiz.items.length : false
   const next = done ? `<button type="button" class="btn primary block" data-act="qnext">${last ? 'Результат' : 'Дальше'}</button>` : ''
   const place = ui.quiz ? `${ui.quiz.i + 1} / ${ui.quiz.items.length}` : ''
@@ -250,7 +259,7 @@ function sayCard(word: Word, item: QuizItem): string {
   const gloss = phrase.ru ? `<p>${esc(phrase.ru)}</p>` : ''
   const script = `<div class="center"><div class="hz" lang="zh-Hans">${toneHan(phrase.hanzi, phrase.py)}</div><div class="py">${shownPy(phrase.py)}</div>${gloss}</div>`
   const cue = show ? 'Прочитайте и повторите вслух.' : 'Прослушайте и повторите пример.'
-  return `<section class="card"><div class="rowtop"><span class="tag">Фраза ${place}</span></div><div class="q">${show || done ? script : ''}${speakBtn(phrase.hanzi, 'Прослушать', phrase.py)}<p class="muted center">${cue}</p><p class="hint">${esc(note)}</p><div class="acts center">${mic}</div>${self}${heard}${verdict}${next}</div></section><p class="center"><button type="button" class="btn tiny" data-act="qstop">Выйти</button></p>`
+  return `<section class="card"><div class="rowtop"><span class="tag">Фраза ${place}</span></div><div class="q">${show || done ? script : ''}${speakBtn(phrase.hanzi, 'Прослушать', phrase.py)}<p class="muted center">${cue}</p>${hearing ? meter() : ''}${heard}${verdict}${warn}<p class="hint">${esc(note)}</p><div class="acts center">${mic}</div>${self}${next}</div></section><p class="center"><button type="button" class="btn tiny" data-act="qstop">Выйти</button></p>`
 }
 
 function ruleMatches(rule: (typeof GRAMMAR)[number], query: string): boolean {

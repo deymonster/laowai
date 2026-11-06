@@ -76,6 +76,8 @@ export const ui = {
   type: null as TypeSess | null,
   confirmReset: false,
   dropTopic: null as string | null,
+  hear: null as null | { text: string },
+  hearNote: '',
 }
 
 export function blankEditor(topic: string): Editor {
