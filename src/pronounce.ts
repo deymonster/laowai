@@ -1,4 +1,7 @@
-export type DiffPiece = { text: string; bad: boolean }
+import { syllableAt } from './pinyin'
+
+export type DiffPiece = { text: string; bad: boolean; expect: string; at: number }
+export type SayFix = { kind: 'swap' | 'miss' | 'extra'; heard: string; hanzi: string; py: string }
 
 export function hanPlain(text: string): string {
   return text.replace(/[^\p{Script=Han}]/gu, '')
@@ -23,23 +26,46 @@ export function alignHeard(target: string, heard: string): DiffPiece[] {
   let j = m
   while (i > 0 || j > 0) {
     if (i > 0 && j > 0 && a[i - 1] === b[j - 1] && dp[i][j] === dp[i - 1][j - 1]) {
-      rev.push({ text: b[j - 1], bad: false })
+      rev.push({ text: b[j - 1], bad: false, expect: a[i - 1], at: i - 1 })
       i -= 1
       j -= 1
     } else if (i > 0 && j > 0 && dp[i][j] === dp[i - 1][j - 1] + 1) {
-      rev.push({ text: b[j - 1], bad: true })
+      rev.push({ text: b[j - 1], bad: true, expect: a[i - 1], at: i - 1 })
       i -= 1
       j -= 1
     } else if (j > 0 && dp[i][j] === dp[i][j - 1] + 1) {
-      rev.push({ text: b[j - 1], bad: true })
+      rev.push({ text: b[j - 1], bad: true, expect: '', at: -1 })
       j -= 1
     } else {
-      rev.push({ text: '·', bad: true })
+      rev.push({ text: '·', bad: true, expect: a[i - 1], at: i - 1 })
       i -= 1
     }
   }
   rev.reverse()
   return rev
+}
+
+function readingOf(pinyin: string, hanzi: string, index: number): string {
+  return syllableAt(pinyin, hanzi, index).replace(/[.,!?;:，。！？；：、…]+/gu, '')
+}
+
+/** Знаки, которые стоит прослушать отдельно: нужный слог или лишний распознанный. */
+export function sayFixes(target: string, heard: string, pinyin: string): SayFix[] {
+  const out: SayFix[] = []
+  for (const piece of alignHeard(target, heard)) {
+    if (!piece.bad) continue
+    if (!piece.expect) {
+      out.push({ kind: 'extra', heard: piece.text, hanzi: piece.text, py: '' })
+      continue
+    }
+    out.push({
+      kind: piece.text === '·' ? 'miss' : 'swap',
+      heard: piece.text,
+      hanzi: piece.expect,
+      py: readingOf(pinyin, target, piece.at),
+    })
+  }
+  return out
 }
 
 type ResultRow = ArrayLike<{ transcript: string }> & { isFinal?: boolean }

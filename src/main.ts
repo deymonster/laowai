@@ -5,7 +5,7 @@ import { cleanGloss, esc, exampleFits, hanChars, studyExample, uid } from './han
 import { analyze, compose, judge, prettifyPinyin, syllableAt, type Reading } from './pinyin'
 import { blankEditor, ui, type Editor, type QuizKind } from './session'
 import { setSpeakActivity, setSpeakNotice, speakingNow, speak, stopSpeak, warm } from './speech'
-import { lineOf, makeQuiz } from './quiz'
+import { applySayHeard, lineOf, makeQuiz } from './quiz'
 import { mountStroke, replayStroke, stepStroke } from './strokes'
 import { applyGrade, applyResult, buildQueue, findWord, selectedWords, shuffle } from './srs'
 import { adoptRaw, load, resetState, save, state } from './store'
@@ -902,7 +902,7 @@ async function act(name: string, el: HTMLElement) {
       const quiz = ui.quiz
       const item = quiz?.items[quiz.i]
       const word = item ? findWord(state, item.id) : undefined
-      if (!quiz || quiz.kind !== 'say' || !item || !word || item.mark) return
+      if (!quiz || quiz.kind !== 'say' || !item || !word || item.mark === 'ok' || item.mark === 'skip') return
       if (listening()) {
         finishListen()
         return
@@ -938,23 +938,15 @@ async function act(name: string, el: HTMLElement) {
         onBars: paint,
         onEnd: result => {
           ui.hear = null
-          if (ui.quiz !== quiz || quiz.items[quiz.i] !== item || item.mark) return
-          if (!result.heard.trim()) {
-            ui.hearNote = 'Ничего не разобрал. Говорите ближе к микрофону и нажмите ещё раз.'
-            draw()
-            return
-          }
-          item.heard = result.heard
-          item.mark = result.ok ? 'ok' : 'off'
-          item.pick = result.ok ? 1 : 0
-          ui.hearNote = ''
-          if (result.ok) quiz.ok += 1
-          else quiz.bad.push(item.id)
+          if (ui.quiz !== quiz || quiz.items[quiz.i] !== item) return
+          const status = applySayHeard(quiz, item, result)
+          if (status === 'closed') return
+          ui.hearNote = status === 'empty' ? 'Ничего не разобрал. Говорите ближе к микрофону и нажмите ещё раз.' : ''
           draw()
         },
         onError: message => {
           ui.hear = null
-          if (ui.quiz !== quiz || quiz.items[quiz.i] !== item || item.mark) return
+          if (ui.quiz !== quiz || quiz.items[quiz.i] !== item || item.mark === 'ok' || item.mark === 'skip') return
           ui.hearNote = message
           draw()
         },

@@ -1,7 +1,7 @@
 import { ACH } from './achieve'
 import { GRAMMAR, HSK } from './grammar'
 import { clozeText, esc, hanChars, ruNoun } from './han'
-import { alignHeard, pronounceSupport } from './pronounce'
+import { alignHeard, pronounceSupport, sayFixes } from './pronounce'
 import { canQuiz, lineOf, quizBlurb } from './quiz'
 import { compose, pyHTML, searchKey, toneOf, type Reading } from './pinyin'
 import { blankEditor, ui, type Editor, type QuizItem } from './session'
@@ -230,6 +230,18 @@ function diffHtml(target: string, heard: string): string {
   return alignHeard(target, heard).map(piece => piece.bad ? `<span class="miss">${esc(piece.text)}</span>` : esc(piece.text)).join('')
 }
 
+function fixRow(target: string, heard: string, pinyin: string): string {
+  const rows = sayFixes(target, heard, pinyin).map(row => {
+    const sound = speakBtn(row.hanzi, row.kind === 'extra' ? `Послушать лишнее ${row.hanzi}` : `Послушать ${row.hanzi}`, row.py)
+    const need = `<b lang="zh-Hans">${esc(row.hanzi)}</b>${row.py ? `<span class="py">${shownPy(row.py)}</span>` : ''}${sound}`
+    if (row.kind === 'extra') return `<span class="fix"><span class="muted">лишнее</span>${need}</span>`
+    if (row.kind === 'miss') return `<span class="fix"><span class="muted">пропуск</span>${need}</span>`
+    return `<span class="fix"><span class="miss" lang="zh-Hans">${esc(row.heard)}</span><span class="muted">→</span>${need}</span>`
+  }).join('')
+  if (!rows) return ''
+  return `<p class="muted center">Так надо</p><div class="fixrow">${rows}</div>`
+}
+
 function meter(): string {
   const bars = Array.from({ length: 12 }, () => '<i></i>').join('')
   const text = ui.hear?.text || 'Слушаю…'
@@ -238,8 +250,9 @@ function meter(): string {
 
 function sayCard(word: Word, item: QuizItem): string {
   const support = pronounceSupport()
-  const done = item.mark != null
-  const hearing = !!ui.hear && !done
+  const locked = item.mark === 'ok' || item.mark === 'skip'
+  const missed = item.mark === 'off'
+  const hearing = !!ui.hear && !locked
   const note = support === 'none'
     ? 'В этом браузере нет распознавания речи. Можно послушать и отметить самому.'
     : support === 'webkit'
@@ -247,19 +260,20 @@ function sayCard(word: Word, item: QuizItem): string {
       : 'Запись уходит в распознавание браузера. В Chrome это сервис Google.'
   const phrase = lineOf(word, item)
   const raw = item.heard ? `<p class="muted center">Услышано: ${esc(item.heard)}</p>` : ''
-  const heard = item.mark === 'ok' || item.mark === 'off' ? `<p class="heard" lang="zh-Hans">${diffHtml(phrase.hanzi, item.heard || '')}</p>${raw}` : ''
-  const verdict = item.mark === 'ok' ? '<p>Совпало.</p>' : item.mark === 'off' ? '<p>Есть расхождения.</p>' : item.mark === 'skip' ? '<p>Без проверки микрофоном.</p>' : ''
-  const mic = support !== 'none' && !done ? `<button type="button" class="btn${hearing ? ' primary' : ''}" data-act="sayrec">${hearing ? 'Готово' : 'Повторить'}</button>` : ''
-  const self = !done && !hearing && (support === 'none' || ui.hearNote) ? '<div class="grades"><button type="button" data-act="saymark" data-v="hear">Слышу</button><button type="button" data-act="saymark" data-v="miss">Не слышу</button></div>' : ''
-  const warn = ui.hearNote && !done ? `<p class="warn">${esc(ui.hearNote)}</p>` : ''
+  const heard = !hearing && (item.mark === 'ok' || missed) ? `<p class="heard" lang="zh-Hans">${diffHtml(phrase.hanzi, item.heard || '')}</p>${raw}` : ''
+  const fixes = missed && !hearing ? fixRow(phrase.hanzi, item.heard || '', phrase.py) : ''
+  const verdict = hearing ? '' : item.mark === 'ok' ? '<p>Совпало.</p>' : missed ? '<p>Есть расхождения. Послушайте знак и скажите ещё раз.</p>' : item.mark === 'skip' ? '<p>Без проверки микрофоном.</p>' : ''
+  const mic = support !== 'none' && !locked ? `<button type="button" class="btn${hearing || missed ? ' primary' : ''}" data-act="sayrec">${hearing ? 'Готово' : 'Повторить'}</button>` : ''
+  const self = !item.mark && !hearing && (support === 'none' || ui.hearNote) ? '<div class="grades"><button type="button" data-act="saymark" data-v="hear">Слышу</button><button type="button" data-act="saymark" data-v="miss">Не слышу</button></div>' : ''
+  const warn = ui.hearNote && !locked ? `<p class="warn">${esc(ui.hearNote)}</p>` : ''
   const last = ui.quiz ? ui.quiz.i + 1 >= ui.quiz.items.length : false
-  const next = done ? `<button type="button" class="btn primary block" data-act="qnext">${last ? 'Результат' : 'Дальше'}</button>` : ''
+  const next = item.mark && !hearing ? `<button type="button" class="btn${missed ? '' : ' primary'} block" data-act="qnext">${last ? 'Результат' : 'Дальше'}</button>` : ''
   const place = ui.quiz ? `${ui.quiz.i + 1} / ${ui.quiz.items.length}` : ''
   const show = state.settings.sayShow
   const gloss = phrase.ru ? `<p>${esc(phrase.ru)}</p>` : ''
   const script = `<div class="center"><div class="hz" lang="zh-Hans">${toneHan(phrase.hanzi, phrase.py)}</div><div class="py">${shownPy(phrase.py)}</div>${gloss}</div>`
   const cue = show ? 'Прочитайте и повторите вслух.' : 'Прослушайте и повторите пример.'
-  return `<section class="card"><div class="rowtop"><span class="tag">Фраза ${place}</span></div><div class="q">${show || done ? script : ''}${speakBtn(phrase.hanzi, 'Прослушать', phrase.py)}<p class="muted center">${cue}</p>${hearing ? meter() : ''}${heard}${verdict}${warn}<p class="hint">${esc(note)}</p><div class="acts center">${mic}</div>${self}${next}</div></section><p class="center"><button type="button" class="btn tiny" data-act="qstop">Выйти</button></p>`
+  return `<section class="card"><div class="rowtop"><span class="tag">Фраза ${place}</span></div><div class="q">${show || item.mark != null ? script : ''}${speakBtn(phrase.hanzi, 'Прослушать', phrase.py)}<p class="muted center">${cue}</p>${hearing ? meter() : ''}${heard}${verdict}${fixes}${warn}<p class="hint">${esc(note)}</p><div class="acts center">${mic}</div>${self}${next}</div></section><p class="center"><button type="button" class="btn tiny" data-act="qstop">Выйти</button></p>`
 }
 
 function ruleMatches(rule: (typeof GRAMMAR)[number], query: string): boolean {

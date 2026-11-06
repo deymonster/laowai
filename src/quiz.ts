@@ -41,6 +41,32 @@ export function lineOf(word: Word, item: { line?: Sample }): Sample {
   return { hanzi: word.example, py: word.examplePy, ru: word.exampleRu }
 }
 
+type SayAttempt = { id: string; pick: number | null; heard?: string; mark?: 'ok' | 'off' | 'skip' }
+
+/** Записывает попытку произношения. Повтор после промаха не увеличивает счётчик ошибок. */
+export function applySayHeard(
+  quiz: { ok: number; bad: string[] },
+  item: SayAttempt,
+  result: { heard: string; ok: boolean },
+): 'empty' | 'ok' | 'off' | 'closed' {
+  if (item.mark === 'ok' || item.mark === 'skip') return 'closed'
+  if (!result.heard.trim()) return 'empty'
+  const wasMiss = item.mark === 'off'
+  item.heard = result.heard
+  item.mark = result.ok ? 'ok' : 'off'
+  item.pick = result.ok ? 1 : 0
+  if (result.ok) {
+    if (wasMiss) {
+      const at = quiz.bad.lastIndexOf(item.id)
+      if (at >= 0) quiz.bad.splice(at, 1)
+    }
+    quiz.ok += 1
+    return 'ok'
+  }
+  if (!wasMiss) quiz.bad.push(item.id)
+  return 'off'
+}
+
 export function quizWords(kind: QuizKind): Word[] {
   const selected = selectedWords(state)
   if (kind === 'cloze' || kind === 'sent') return withExample(selected, kind === 'cloze')
