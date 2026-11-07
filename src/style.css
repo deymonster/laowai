@@ -201,6 +201,14 @@ textarea { min-height: 72px; resize: vertical; }
 .hit b { font: 22px/1.2 "Songti SC", "Noto Serif SC", serif; }
 .hit small { color: var(--muted); }
 .addtopic { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin: 10px 0; }
+.maketopic { margin: 8px 0 0; }
+.newbox { margin: 4px 0 14px; padding: 12px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); border-radius: 14px; background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.newbox .barlabel { margin: 0; color: var(--ink); font-size: 15px; font-weight: 650; }
+.newbox .addtopic { margin: 8px 0 0; }
+.newbox .hint { margin: 8px 0 0; }
+@media (max-width: 520px) {
+  .newbox .addtopic { grid-template-columns: 1fr; }
+}
 .folders { display: grid; gap: 8px; margin: 12px 0; }
 .folder { display: flex; width: 100%; min-height: 56px; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; text-align: left; }
 .folder b, .folder small { display: block; }
@@ -221,12 +229,13 @@ textarea { min-height: 72px; resize: vertical; }
 .ach article.off { opacity: .5; }
 .ach b { font-size: 15px; }
 .qclock { font-variant-numeric: tabular-nums; font-weight: 650; }
-.rule { display: grid; gap: 4px; padding: 10px 0; border-top: 1px solid var(--line); text-align: left; width: 100%; background: none; border-right: 0; border-left: 0; border-bottom: 0; border-radius: 0; }
-.rule b, .rule span, .rule small { display: block; }
-.rule small { color: var(--muted); }
-.rule.on { background: color-mix(in srgb, var(--good) 10%, transparent); }
-.ruleline { display: flex; align-items: flex-start; gap: 8px; }
-.ruleline .rule { flex: 1; }
+.gtopic { display: grid; gap: 2px; width: 100%; text-align: left; padding: 12px 2px; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: none; }
+.gtopic b { font-size: 18px; }
+.gtopic span, .gtopic small, .gtopic em { display: block; color: var(--muted); font-style: normal; }
+.gtopic span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.gtopic.on b { color: var(--good); }
+.scheme { display: grid; gap: 2px; margin: 10px 0; padding: 10px 12px; border-radius: 12px; background: var(--bg); }
+.scheme b { font: 22px/1.35 "Songti SC", "Noto Serif SC", serif; }
 .glevel { margin-top: 12px; }
 .glevel summary { cursor: pointer; font-weight: 650; }
 .miss { color: var(--bad); }

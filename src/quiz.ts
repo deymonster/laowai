@@ -70,17 +70,17 @@ export function applySayHeard(
 export function quizWords(kind: QuizKind): Word[] {
   const selected = selectedWords(state)
   if (kind === 'cloze' || kind === 'sent') return withExample(selected, kind === 'cloze')
-  return selected.length >= 4 ? selected : state.words
+  return selected
 }
 
-function grammarNow() {
+export function grammarPool() {
   const levels = state.hsk.length ? state.hsk : [1, 2, 3, 4, 5, 6]
   const rules = GRAMMAR.filter(rule => levels.includes(rule.level))
   return rules.length >= 4 ? rules : GRAMMAR
 }
 
 export function canQuiz(kind: QuizKind): boolean {
-  if (kind === 'gram') return grammarNow().length >= 4
+  if (kind === 'gram') return grammarPool().length >= 4
   if (kind === 'say') return sayLines(selectedWords(state)).length >= 4
   return quizWords(kind).length >= 4
 }
@@ -103,7 +103,7 @@ function choice(words: Word[], word: Word, text: (item: Word) => string): QuizIt
 export function makeQuiz(kind: QuizKind): QuizSess | null {
   if (!canQuiz(kind)) return null
   if (kind === 'gram') {
-    const pool = grammarNow()
+    const pool = grammarPool()
     const rules = shuffle(pool).slice(0, 10)
     return {
       kind,

@@ -5,7 +5,7 @@ import { dictionaryQuery, parseBkrs } from '../server/bkrs'
 import { assertEdgeOpen, edgeCooling, edgeRate, noteEdgeFailure, noteEdgeSuccess } from '../server/edge-policy'
 import { analyze, searchKey, syllableAt, syllables } from './pinyin'
 import { judge, prettifyPinyin } from './pinyin'
-import { applySayHeard, canQuiz, makeQuiz, sayLines } from './quiz'
+import { applySayHeard, canQuiz, makeQuiz, quizWords, sayLines } from './quiz'
 import { applyGrade, getP, planGrade, selectedWords, today } from './srs'
 import { HSK_WORDS } from './hsk-list'
 import { SEED, TOPICS } from './seed'
@@ -96,11 +96,20 @@ expect('query digits', dictionaryQuery('ni3hao3')?.q, 'ni hao')
 expect('query short', dictionaryQuery('a'), null)
 expect('cloze', clozeText('我喝水。', '水'), '我喝____。')
 expect('grammar ids', new Set(GRAMMAR.map(rule => rule.id)).size, GRAMMAR.length)
+expect('grammar samples', GRAMMAR.every(rule => !!rule.pattern && (rule.more || []).length >= 2), true)
+for (const rule of GRAMMAR) {
+  for (const item of rule.more || []) {
+    const han = [...item.hanzi].filter(ch => /\p{Script=Han}/u.test(ch)).length
+    const er = [...item.hanzi].filter(ch => ch === '儿').length
+    const got = syllables(item.py).length
+    expect(`${rule.id} ${item.hanzi}`, item.ru.length > 1 && got <= han && got >= han - er && got > 0, true)
+  }
+}
 expect('hsk bands', HSK.length, 6)
 for (const level of HSK) expect(`hsk ${level} rules`, GRAMMAR.filter(rule => rule.level === level).length >= 4, true)
 expect('goal default', freshState().settings.goal, 0)
 expect('say show default', freshState().settings.sayShow, true)
-expect('app version', APP_VERSION, '1.0.11')
+expect('app version', APP_VERSION, '1.0.12')
 expect('g1 level', freshState().words.find(word => word.id === 'g1')?.level, 1)
 expect('bank level', freshState().words.find(word => word.id === 'r1')?.level, 3)
 expect('default hsk', freshState().hsk.join(','), '1,2,3,4,5,6')
@@ -290,6 +299,31 @@ const stray = sayLines([{
 expect('sentence must contain word', stray.length, 0)
 deck.lv = furnLv
 deck.hsk = furnHsk
+const quizLv = deck.lv.slice()
+const quizHsk = deck.hsk.slice()
+deck.topics.push({ id: 'solo', name: 'Своя', builtin: false })
+deck.words.push({
+  id: 'solo-cha', topic: 'solo', hanzi: '茶', pinyin: 'chá', ru: 'чай', pos: 'сущ.',
+  note: '', example: '我喝茶。', examplePy: 'wǒ hē chá.', exampleRu: 'Я пью чай.', uses: [], level: 1, custom: true,
+})
+deck.lv = ['solo']
+deck.hsk = [1, 2, 3, 4, 5, 6]
+const solo = quizWords('h2r')
+expect('custom quiz stays in list', solo.length === 1 && solo[0]?.id === 'solo-cha', true)
+expect('short list does not start', canQuiz('h2r'), false)
+expect('short list makes no quiz', makeQuiz('h2r'), null)
+for (const han of ['桌', '椅', '灯']) {
+  deck.words.push({
+    id: 'solo-' + han, topic: 'solo', hanzi: han, pinyin: 'zhū', ru: han, pos: 'сущ.',
+    note: '', example: '', examplePy: '', exampleRu: '', uses: [], level: 1, custom: true,
+  })
+}
+const own = makeQuiz('h2r')
+expect('quiz uses only custom list', !!own && own.items.length === 10 && own.items.every(item => item.id.startsWith('solo-')), true)
+deck.hsk = [6]
+expect('level still filters custom', quizWords('h2r').length, 0)
+deck.lv = quizLv
+deck.hsk = quizHsk
 const greetOnly = freshState()
 expect('greet examples', selectedWords(greetOnly).filter(word => word.example && word.exampleRu).length >= 4, true)
 expect('rate slow', edgeRate(0.8), '-25%')

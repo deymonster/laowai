@@ -1,6 +1,7 @@
 import './style.css'
 import { unlock } from './achieve'
 import { lookupWord, type DictHit } from './dict'
+import { GRAMMAR } from './grammar'
 import { cleanGloss, esc, exampleFits, hanChars, studyExample, uid } from './han'
 import { analyze, compose, judge, prettifyPinyin, syllableAt, type Reading } from './pinyin'
 import { blankEditor, ui, type Editor, type QuizKind } from './session'
@@ -158,6 +159,14 @@ function draw() {
   ui.scrollTopic = null
   const head = scrollId ? document.getElementById(`topic-${scrollId}`) : null
   if (head) head.scrollIntoView({ block: 'start' })
+  if (ui.focusNewTopic) {
+    ui.focusNewTopic = false
+    const input = document.getElementById('newtopic') as HTMLInputElement | null
+    if (input) {
+      input.focus()
+      input.scrollIntoView({ block: 'center' })
+    }
+  }
   armClock()
   warmVisible()
   paintSpeakButtons()
@@ -420,6 +429,12 @@ function bindLive() {
       event.preventDefault()
       event.stopPropagation()
     })
+  })
+  const freshTopic = document.getElementById('newtopic') as HTMLInputElement | null
+  freshTopic?.addEventListener('keydown', event => {
+    if (event.key !== 'Enter') return
+    event.preventDefault()
+    void act('newtopic', freshTopic)
   })
   const search = document.getElementById('q') as HTMLInputElement | null
   search?.addEventListener('input', () => {
@@ -702,6 +717,10 @@ async function act(name: string, el: HTMLElement) {
         ui.focusTopic = id
       }
       if (state.lv.includes(id)) ui.scrollTopic = id
+      if (ui.view === 'quiz' && !ui.quiz) {
+        save()
+        break
+      }
       const opened = ui.view === 'list' && !ui.showFolders && !ui.folder
       if (!opened) {
         ui.q = ''
@@ -792,6 +811,23 @@ async function act(name: string, el: HTMLElement) {
     }
     case 'folder': ui.showFolders = false; ui.folder = el.dataset.n || null; ui.q = ''; ui.openId = null; ui.status = 'all'; ui.listExtra = 0; break
     case 'folders': ui.showFolders = true; ui.folder = null; ui.q = ''; ui.openId = null; break
+    case 'maketopic':
+      stopListen()
+      ui.hear = null
+      ui.hearNote = ''
+      ui.view = 'list'
+      ui.showFolders = false
+      ui.folder = null
+      ui.editor = null
+      ui.study = null
+      ui.quiz = null
+      ui.type = null
+      ui.q = ''
+      ui.openId = null
+      ui.status = 'all'
+      ui.listExtra = 0
+      ui.focusNewTopic = true
+      break
     case 'edit': {
       const word = findWord(state, el.dataset.id || '')
       if (word) openEditor(editorFromWord(word))
@@ -1020,11 +1056,11 @@ async function act(name: string, el: HTMLElement) {
     case 'tstop': ui.type = null; break
     case 'newtopic': {
       const name = field('newtopic').trim()
-      if (!name) return
+      if (!name) { toast('Впишите название подборки'); return }
       if (state.topics.some(topic => topic.name.toLowerCase() === name.toLowerCase())) { toast('Такая тема уже есть'); return }
       const id = uid('t')
       state.topics.push({ id, name, builtin: false })
-      if (!state.lv.includes(id)) state.lv.push(id)
+      state.lv = [id]
       ui.showFolders = false
       ui.folder = id
       ui.focusTopic = id
@@ -1074,6 +1110,15 @@ async function act(name: string, el: HTMLElement) {
       save(); applyTheme(); break
     }
     case 'goal': state.settings.goal = [10, 20, 30, 50].includes(Number(el.dataset.v)) ? Number(el.dataset.v) : 0; save(); break
+    case 'gtopic': {
+      const id = el.dataset.id || ''
+      if (!GRAMMAR.some(rule => rule.id === id)) return
+      ui.gramId = id
+      const level = Number(el.dataset.lv)
+      if (level >= 1 && level <= 6) ui.gramOpen = level
+      break
+    }
+    case 'gback': ui.gramId = ''; break
     case 'gram': {
       const id = el.dataset.id || ''
       if (!id) return

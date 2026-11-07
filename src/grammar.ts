@@ -1,3 +1,4 @@
+import { GRAMMAR_MORE, GRAMMAR_SCHEME } from './grammar-more'
 import { UPPER } from './grammar-upper'
 
 export const HSK = [1, 2, 3, 4, 5, 6] as const
@@ -19,7 +20,7 @@ export type Rule = {
   more?: Sample[]
 }
 
-export const GRAMMAR: Rule[] = [
+const RULES: Rule[] = [
   { id: 'order', level: 1, title: 'Порядок слов', rule: 'Обычный порядок: кто, когда, где, что делает, с чем. Время и место стоят перед глаголом.', example: '我今天在学校喝茶。', examplePy: 'wǒ jīn tiān zài xué xiào hē chá.', exampleRu: 'Я сегодня в школе пью чай.' },
   { id: 'shi', level: 1, title: '是', rule: 'Связка «являться» стоит между подлежащим и именной частью. Перед ней не нужен другой глагол.', example: '我是学生。', examplePy: 'wǒ shì xué shēng.', exampleRu: 'Я студент.' },
   { id: 'bu', level: 1, title: '不', rule: 'Отрицание 不 стоит прямо перед глаголом или прилагательным. Перед слогом четвёртого тона оно читается bú.', example: '我不是老师。', examplePy: 'wǒ bú shì lǎo shī.', exampleRu: 'Я не учитель.' },
@@ -108,3 +109,18 @@ export const GRAMMAR: Rule[] = [
   { id: 'surprise', level: 6, title: '竟然', rule: '竟然 отмечает неожиданный, трудно поверимый факт.', example: '他竟然不认识老师。', examplePy: 'tā jìng rán bú rèn shi lǎo shī.', exampleRu: 'Он, представьте, не знает учителя.' },
   ...UPPER,
 ]
+
+function enrich(rule: Rule): Rule {
+  const extra = GRAMMAR_MORE[rule.id] || []
+  return {
+    ...rule,
+    pattern: rule.pattern || GRAMMAR_SCHEME[rule.id] || rule.title,
+    more: [...(rule.more || []), ...extra],
+  }
+}
+
+export const GRAMMAR: Rule[] = RULES.map(enrich)
+
+export function ruleSamples(rule: Rule): Sample[] {
+  return [{ hanzi: rule.example, py: rule.examplePy, ru: rule.exampleRu }, ...(rule.more || [])]
+}

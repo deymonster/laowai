@@ -1,8 +1,8 @@
 import { ACH } from './achieve'
-import { GRAMMAR, HSK } from './grammar'
+import { GRAMMAR, HSK, ruleSamples } from './grammar'
 import { clozeText, esc, hanChars, ruNoun } from './han'
 import { alignHeard, pronounceSupport, sayFixes } from './pronounce'
-import { canQuiz, lineOf, quizBlurb } from './quiz'
+import { canQuiz, grammarPool, lineOf, quizBlurb, quizWords, sayLines } from './quiz'
 import { compose, pyHTML, searchKey, toneOf, type Reading } from './pinyin'
 import { blankEditor, ui, type Editor, type QuizItem } from './session'
 import { findWord, getP, inTopic, selectedWords, statusOf, streak, today, topicCount, buildQueue, dueLabel, nextDue, type Grade } from './srs'
@@ -34,7 +34,14 @@ function topicBar(): string {
   const busy = (ui.view === 'study' && ui.study) || (ui.view === 'quiz' && ui.quiz) || (ui.view === 'write' && ui.type)
   if (ui.view === 'edit' || ui.view === 'set' || ui.view === 'list' || busy) return ''
   if (ui.view === 'gram') return levelBar()
-  return `${levelBar()}<p class="hint">Уровень отсекает ступень в учёбе и тестах. Список выбирает слова, нажатие открывает их.</p><p class="barlabel">Списки</p>${topicChips()}`
+  const hint = ui.view === 'quiz'
+    ? 'Уровень отсекает ступень. Список включает слова в этот тест. Нажатие не уходит из теста.'
+    : 'Уровень отсекает ступень в учёбе и тестах. Список выбирает слова, нажатие открывает их.'
+  return `${levelBar()}<p class="hint">${hint}</p><p class="barlabel">Списки</p><button type="button" class="btn primary maketopic" data-act="maketopic">＋ Новая подборка</button>${topicChips()}`
+}
+
+function newTopicBox(): string {
+  return `<div class="newbox"><p class="barlabel">Новая подборка</p><div class="addtopic"><input id="newtopic" type="text" placeholder="Название, например Кухня" aria-label="Название новой подборки" maxlength="40" autocomplete="off" enterkeyhint="done"><button type="button" class="btn primary" data-act="newtopic">Создать подборку</button></div><p class="hint">Откроется сразу. В учёбе и тесте останется только она, пока не включите другие списки.</p></div>`
 }
 
 function topicChips(): string {
@@ -168,17 +175,37 @@ function goal(): string {
   return `<p class="goal">Цель на день: <b>${Math.min(done, target)}</b> из <b>${target}</b>${series}</p><div class="bar"><i style="width:${width}%"></i></div>`
 }
 
+function quizPoolNote(): string {
+  if (ui.quizKind === 'gram') {
+    const levels = (state.hsk.length ? state.hsk : [1, 2, 3, 4, 5, 6]).join(', ')
+    return `Правила HSK ${levels}: ${grammarPool().length}. Списки слов на этот тест не влияют.`
+  }
+  const ids = state.lv.length ? state.lv : ['greet']
+  const names = ids.map(topicName).join(', ')
+  const levelNote = state.hsk.length < HSK.length ? ` Ступени: HSK ${state.hsk.join(', ')}.` : ''
+  const phrases = ui.quizKind === 'say' || ui.quizKind === 'sent' || ui.quizKind === 'cloze'
+  const n = ui.quizKind === 'say' ? sayLines(selectedWords(state)).length : quizWords(ui.quizKind).length
+  const unit = phrases ? ruNoun(n, 'фраза', 'фразы', 'фраз') : ruNoun(n, 'слово', 'слова', 'слов')
+  const multi = ids.length > 1 ? ' Включено несколько списков: лишние выключаются здесь.' : ''
+  return `Списки: ${names}.${levelNote} В тесте ${n} ${unit}.${multi} Другие списки не входят.`
+}
+
+function quizLack(): string {
+  if (ui.quizKind === 'say') return 'В выбранных списках мало предложений. Откройте слово и впишите фразу с его иероглифами и переводом. Другие списки в этот тест не попадают.'
+  if (ui.quizKind === 'sent' || ui.quizKind === 'cloze') return 'В выбранных списках мало примеров. Другие списки в этот тест не попадают.'
+  if (ui.quizKind === 'gram') return 'Включите уровень HSK, чтобы набрать правила.'
+  const topics = state.lv.length ? state.lv : ['greet']
+  const inLists = state.words.filter(word => topics.some(id => inTopic(state, word, id))).length
+  if (inLists >= 4 && selectedWords(state).length < 4) return 'В выбранных списках слова есть, но включённый уровень HSK их отсекает. Включите ступень этих слов. Другие списки в тест не попадают.'
+  return 'В выбранных списках меньше четырёх слов. Другие списки в этот тест не попадают.'
+}
+
 function quizView(): string {
   const kinds: [typeof ui.quizKind, string][] = [['h2r', 'Иероглиф → перевод'], ['r2h', 'Перевод → иероглиф'], ['h2p', 'Иероглиф → пиньинь'], ['aud', 'На слух'], ['sent', 'Фраза'], ['cloze', 'Пропуск'], ['say', 'Произношение'], ['gram', 'Правило'], ['speed', 'На скорость']]
   if (!ui.quiz) {
     const can = canQuiz(ui.quizKind)
     const start = ui.quizKind === 'speed' ? 'Старт · 60 секунд' : 'Начать тест'
-    const lack = ui.quizKind === 'say'
-      ? 'В выбранных списках мало предложений. Откройте слово и впишите фразу с его иероглифами и переводом. Другие списки в этот тест не попадают.'
-      : ui.quizKind === 'sent' || ui.quizKind === 'cloze'
-        ? 'В выбранных списках мало примеров. Другие списки в этот тест не попадают.'
-        : 'Для этого режима пока мало слов. Выберите другие списки или другой тест.'
-    return `<section class="card"><h2>Тест</h2>${seg(kinds, ui.quizKind, 'qkind')}<p class="muted">${esc(quizBlurb(ui.quizKind))}</p>${can ? '' : `<p class="muted">${lack}</p>`}<button type="button" class="btn primary block" data-act="qstart"${can ? '' : ' disabled'}>${start}</button></section>`
+    return `<section class="card"><h2>Тест</h2>${seg(kinds, ui.quizKind, 'qkind')}<p class="muted">${esc(quizBlurb(ui.quizKind))}</p><p class="muted">${esc(quizPoolNote())}</p>${can ? '' : `<p class="warn">${esc(quizLack())}</p>`}<button type="button" class="btn primary block" data-act="qstart"${can ? '' : ' disabled'}>${start}</button></section>`
   }
   const quiz = ui.quiz
   if (quiz.i >= quiz.items.length) {
@@ -209,7 +236,8 @@ function quizView(): string {
   const after = done && quiz.kind !== 'speed' ? `<div class="answer">${answer}</div><button type="button" class="btn primary block" data-act="qnext">${quiz.i + 1 >= quiz.items.length ? 'Результат' : 'Дальше'}</button>` : ''
   const clock = quiz.kind === 'speed' ? `<b class="qclock" id="qclock">${Math.max(0, Math.ceil((quiz.until - Date.now()) / 1000))} с</b>` : ''
   const listen = word && quiz.kind !== 'aud' && quiz.kind !== 'sent' && quiz.kind !== 'gram' ? speakBtn(word.hanzi, 'Произнести', word.pinyin) : ''
-  return `<section class="card"><div class="rowtop"><span class="tag">${quiz.kind === 'speed' ? `Счёт ${quiz.ok}` : `Вопрос ${quiz.i + 1} / ${quiz.items.length}`}</span>${clock}${listen}</div><div class="q">${prompt}</div><div class="opts">${opts}</div>${after}</section><p class="center"><button type="button" class="btn tiny" data-act="qstop">Выйти</button></p>`
+  const from = word ? `<span class="tag">${esc(topicName(word.topic))}</span>` : ''
+  return `<section class="card"><div class="rowtop"><span class="tag">${quiz.kind === 'speed' ? `Счёт ${quiz.ok}` : `Вопрос ${quiz.i + 1} / ${quiz.items.length}`}</span>${from}${clock}${listen}</div><div class="q">${prompt}</div><div class="opts">${opts}</div>${after}</section><p class="center"><button type="button" class="btn tiny" data-act="qstop">Выйти</button></p>`
 }
 
 function toneHan(hanzi: string, pinyin: string): string {
@@ -273,7 +301,7 @@ function sayCard(word: Word, item: QuizItem): string {
   const gloss = phrase.ru ? `<p>${esc(phrase.ru)}</p>` : ''
   const script = `<div class="center"><div class="hz" lang="zh-Hans">${toneHan(phrase.hanzi, phrase.py)}</div><div class="py">${shownPy(phrase.py)}</div>${gloss}</div>`
   const cue = show ? 'Прочитайте и повторите вслух.' : 'Прослушайте и повторите пример.'
-  return `<section class="card"><div class="rowtop"><span class="tag">Фраза ${place}</span></div><div class="q">${show || item.mark != null ? script : ''}${speakBtn(phrase.hanzi, 'Прослушать', phrase.py)}<p class="muted center">${cue}</p>${hearing ? meter() : ''}${heard}${verdict}${fixes}${warn}<p class="hint">${esc(note)}</p><div class="acts center">${mic}</div>${self}${next}</div></section><p class="center"><button type="button" class="btn tiny" data-act="qstop">Выйти</button></p>`
+  return `<section class="card"><div class="rowtop"><span class="tag">Фраза ${place}</span><span class="tag">${esc(topicName(word.topic))}</span></div><div class="q">${show || item.mark != null ? script : ''}${speakBtn(phrase.hanzi, 'Прослушать', phrase.py)}<p class="muted center">${cue}</p>${hearing ? meter() : ''}${heard}${verdict}${fixes}${warn}<p class="hint">${esc(note)}</p><div class="acts center">${mic}</div>${self}${next}</div></section><p class="center"><button type="button" class="btn tiny" data-act="qstop">Выйти</button></p>`
 }
 
 function ruleMatches(rule: (typeof GRAMMAR)[number], query: string): boolean {
@@ -284,10 +312,18 @@ function ruleMatches(rule: (typeof GRAMMAR)[number], query: string): boolean {
   return searchKey(blob).includes(searchKey(needle)) || blob.toLowerCase().includes(needle.toLowerCase())
 }
 
-function ruleCard(rule: (typeof GRAMMAR)[number]): string {
+function gramTopic(rule: (typeof GRAMMAR)[number]): string {
   const on = state.gram.includes(rule.id)
-  const extra = (rule.more || []).map(item => `<span lang="zh-Hans">${esc(item.hanzi)}</span><span class="py">${shownPy(item.py)}</span><small>${esc(item.ru)}</small>`).join('')
-  return `<div class="ruleline"><button type="button" class="rule${on ? ' on' : ''}" data-act="gram" data-id="${esc(rule.id)}" data-lv="${rule.level}" aria-pressed="${on}"><b>${esc(rule.pattern || rule.title)}</b><span>${esc(rule.rule)}</span><span lang="zh-Hans">${esc(rule.example)}</span><span class="py">${shownPy(rule.examplePy)}</span><small>${esc(rule.exampleRu)}</small>${extra}</button>${speakBtn(rule.example, 'Произнести пример', rule.examplePy)}</div>`
+  const samples = ruleSamples(rule).map(item => sampleBlock(item.hanzi, item.py, item.ru)).join('')
+  const scheme = rule.pattern || rule.title
+  return `<section class="card"><div class="rowtop"><button type="button" class="btn tiny" data-act="gback">К темам</button><span class="tag">HSK ${rule.level}</span>${on ? '<span class="tag">понятно</span>' : ''}</div><h2>${esc(rule.title)}</h2><div class="scheme"><span class="muted">Схема</span><b lang="zh-Hans">${esc(scheme)}</b></div><p>${esc(rule.rule)}</p><h3 class="band">Примеры</h3>${samples}<button type="button" class="btn${on ? ' primary' : ''} block" data-act="gram" data-id="${esc(rule.id)}" data-lv="${rule.level}" aria-pressed="${on}">${on ? 'Понятно' : 'Отметить: понятно'}</button></section>`
+}
+
+function topicRow(rule: (typeof GRAMMAR)[number]): string {
+  const on = state.gram.includes(rule.id)
+  const count = ruleSamples(rule).length
+  const scheme = rule.pattern && rule.pattern !== rule.title ? `<small lang="zh-Hans">${esc(rule.pattern)}</small>` : ''
+  return `<button type="button" class="gtopic${on ? ' on' : ''}" data-act="gtopic" data-id="${esc(rule.id)}" data-lv="${rule.level}"><b>${esc(rule.title)}</b>${scheme}<span>${esc(rule.rule)}</span><em>${on ? 'понятно · ' : ''}${count} ${ruNoun(count, 'пример', 'примера', 'примеров')}</em></button>`
 }
 
 export function gramListHtml(): string {
@@ -297,17 +333,19 @@ export function gramListHtml(): string {
     const items = GRAMMAR.filter(rule => rule.level === level && ruleMatches(rule, query))
     if (!items.length) return ''
     const open = !!query || level === 1 || level === ui.gramOpen
-    return `<details class="glevel"${open ? ' open' : ''}><summary>HSK ${level}</summary>${items.map(ruleCard).join('')}</details>`
+    return `<details class="glevel"${open ? ' open' : ''}><summary>HSK ${level} · ${items.length} ${ruNoun(items.length, 'тема', 'темы', 'тем')}</summary>${items.map(topicRow).join('')}</details>`
   }).join('')
   return body || '<p class="muted">Ничего не найдено.</p>'
 }
 
 function gramView(): string {
+  const open = ui.gramId ? GRAMMAR.find(rule => rule.id === ui.gramId) : undefined
+  if (open) return gramTopic(open)
   const shown = HSK.filter(level => state.hsk.includes(level))
   const rules = GRAMMAR.filter(rule => shown.includes(rule.level))
   const done = rules.filter(rule => state.gram.includes(rule.id)).length
   const empty = shown.length ? '' : '<p class="muted">Включите хотя бы один уровень.</p>'
-  return `<section class="card"><h2>Грамматика</h2><p class="muted">Правила по ступеням HSK. Нажмите правило, если оно уже понятно. В тест попадают включённые уровни. ${done} из ${rules.length}.</p><label class="field">Найти правило<input id="gfind" value="${esc(ui.gramQ)}" placeholder="название, пример или 虽然" aria-label="Найти правило" autocomplete="off"></label><div id="grules">${empty || gramListHtml()}</div></section>`
+  return `<section class="card"><h2>Грамматика</h2><p class="muted">Темы по ступеням HSK. Откройте тему: внутри схема, объяснение и несколько примеров. В тест попадают включённые уровни. ${done} из ${rules.length} отмечены как понятные.</p><label class="field">Найти тему<input id="gfind" value="${esc(ui.gramQ)}" placeholder="название, пример или 虽然" aria-label="Найти тему" autocomplete="off"></label><div id="grules">${empty || gramListHtml()}</div></section>`
 }
 
 function mistakes(ids: string[]): string {
@@ -393,7 +431,7 @@ function wordsLabel(count: number): string {
 }
 
 function folderList(): string {
-  return `<section class="card"><h2>Подборки</h2><p class="hint">Списки HSK уже есть. Своя подборка создаётся здесь, слова в ней можно удалить вместе с ней или оставить в «Моих словах».</p><div class="addtopic"><input id="newtopic" type="text" placeholder="Новая подборка" aria-label="Название подборки" maxlength="40"><button type="button" class="btn" data-act="newtopic">Создать</button></div><div class="folders">${state.topics.map(topic => `<button type="button" class="folder" data-act="folder" data-n="${esc(topic.id)}"><span><b>${esc(topic.name)}</b><small>${wordsLabel(topicCount(state, topic.id))}</small></span><span aria-hidden="true">›</span></button>`).join('')}</div></section>`
+  return `<section class="card"><h2>Подборки</h2>${newTopicBox()}<p class="hint">Готовые списки ниже. Удаление своей подборки оставляет её слова в «Моих словах».</p><div class="folders">${state.topics.map(topic => `<button type="button" class="folder" data-act="folder" data-n="${esc(topic.id)}"><span><b>${esc(topic.name)}</b><small>${wordsLabel(topicCount(state, topic.id))}</small></span><span aria-hidden="true">›</span></button>`).join('')}</div></section>`
 }
 
 function wordTools(): string {
@@ -401,7 +439,7 @@ function wordTools(): string {
 }
 
 function selectedList(): string {
-  return `<section class="card"><div class="rowtop"><h2>Слова</h2><button type="button" class="btn tiny" data-act="folders">Подборки</button></div><p class="hint">Отметьте подборку — её слова будут в этом списке. HSK 1–6 уже готовы. Своя категория создаётся в «Подборках».</p>${topicChips()}${wordTools()}</section>`
+  return `<section class="card"><div class="rowtop"><h2>Слова</h2><button type="button" class="btn tiny" data-act="folders">Все подборки</button></div>${newTopicBox()}<p class="hint">Отметьте список ниже — его слова появятся здесь.</p>${topicChips()}${wordTools()}</section>`
 }
 
 function listView(): string {
@@ -412,7 +450,9 @@ function listView(): string {
   const outside = state.words.filter(word => inTopic(state, word, topic.id) && !levels.includes(word.level || 1)).length
   const levelNote = outside ? `<p class="hint">${outside} не попадут в учёбу и тесты: их уровень HSK сейчас выключен. В этом списке они есть.</p>` : ''
   const own = topic.builtin ? '' : `<div class="addtopic"><input id="renametopic" value="${esc(topic.name)}" maxlength="40" aria-label="Новое название"><button type="button" class="btn" data-act="rentopic" data-n="${esc(topic.id)}">Переименовать</button></div>${ui.dropTopic === topic.id ? `<div class="confirm"><span>Удалить подборку? Её слова останутся в «Моих словах».</span><button type="button" class="btn danger" data-act="deltopic" data-n="${esc(topic.id)}">Удалить</button><button type="button" class="btn" data-act="drop-no">Отмена</button></div>` : `<button type="button" class="btn danger" data-act="drop-ask" data-n="${esc(topic.id)}">Удалить подборку</button>`}`
-  return `<section class="card"><div class="rowtop"><button type="button" class="btn tiny" data-act="folders">Все подборки</button><h2>${esc(topic.name)}</h2><span class="tag">${wordsLabel(topicCount(state, topic.id))}</span></div><p class="hint">Новое слово сохранится в эту подборку. В карточке слова можно добавить предложения с его иероглифами: они пойдут в проверку произношения, если этот список отмечен.</p>${own}${levelNote}${wordTools()}</section>`
+  const onlyHere = state.lv.length === 1 && state.lv[0] === topic.id
+  const onlyNote = onlyHere ? '<p class="hint">В учёбе и тесте сейчас только эта подборка. Другие списки включаются на экране теста.</p>' : ''
+  return `<section class="card"><div class="rowtop"><button type="button" class="btn tiny" data-act="folders">Все подборки</button><h2>${esc(topic.name)}</h2><span class="tag">${wordsLabel(topicCount(state, topic.id))}</span><button type="button" class="btn primary" data-act="maketopic">＋ Новая подборка</button></div><p class="hint">Новое слово сохранится в эту подборку. В карточке слова можно добавить предложения с его иероглифами: они пойдут в проверку произношения, если этот список отмечен.</p>${onlyNote}${own}${levelNote}${wordTools()}</section>`
 }
 
 export function readingExtras(parts: Reading[], picks: Record<number, string>, scope: 'word' | 'ex'): string {
