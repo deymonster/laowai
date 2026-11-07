@@ -45,7 +45,8 @@ function newTopicBox(): string {
 }
 
 function topicChips(): string {
-  return `<div class="chipscroll"><div class="topics" role="group" aria-label="Списки">${state.topics.map(topic => {
+  const topics = [...state.topics.filter(topic => !topic.builtin), ...state.topics.filter(topic => topic.builtin)]
+  return `<div class="chipscroll"><div class="topics" role="group" aria-label="Списки">${topics.map(topic => {
     const on = state.lv.includes(topic.id)
     const count = topicCount(state, topic.id)
     return `<button type="button" class="chip${on ? ' on' : ''}" data-act="lv" data-n="${esc(topic.id)}" aria-pressed="${on}" aria-label="${esc(topic.name)}, ${count}" title="Слова в этом списке"><span>${esc(topic.name)}</span><small>${count}</small></button>`
@@ -175,13 +176,29 @@ function goal(): string {
   return `<p class="goal">Цель на день: <b>${Math.min(done, target)}</b> из <b>${target}</b>${series}</p><div class="bar"><i style="width:${width}%"></i></div>`
 }
 
+function activeListNames(): string {
+  const ids = state.lv.length ? state.lv : ['greet']
+  return ids.map(topicName).join(', ')
+}
+
+function ownQuizButtons(): string {
+  if (ui.quizKind === 'gram') return ''
+  const own = state.topics.filter(topic => !topic.builtin)
+  if (!own.length) return ''
+  const only = state.lv.length === 1 ? state.lv[0] : ''
+  return `<div class="acts">${own.map(topic => {
+    const on = only === topic.id
+    return `<button type="button" class="btn${on ? ' primary' : ''}" data-act="lvonly" data-n="${esc(topic.id)}" aria-pressed="${on}">Только ${esc(topic.name)}</button>`
+  }).join('')}</div>`
+}
+
 function quizPoolNote(): string {
   if (ui.quizKind === 'gram') {
     const levels = (state.hsk.length ? state.hsk : [1, 2, 3, 4, 5, 6]).join(', ')
     return `Правила HSK ${levels}: ${grammarPool().length}. Списки слов на этот тест не влияют.`
   }
   const ids = state.lv.length ? state.lv : ['greet']
-  const names = ids.map(topicName).join(', ')
+  const names = activeListNames()
   const levelNote = state.hsk.length < HSK.length ? ` Ступени: HSK ${state.hsk.join(', ')}.` : ''
   const phrases = ui.quizKind === 'say' || ui.quizKind === 'sent' || ui.quizKind === 'cloze'
   const n = ui.quizKind === 'say' ? sayLines(selectedWords(state)).length : quizWords(ui.quizKind).length
@@ -205,7 +222,8 @@ function quizView(): string {
   if (!ui.quiz) {
     const can = canQuiz(ui.quizKind)
     const start = ui.quizKind === 'speed' ? 'Старт · 60 секунд' : 'Начать тест'
-    return `<section class="card"><h2>Тест</h2>${seg(kinds, ui.quizKind, 'qkind')}<p class="muted">${esc(quizBlurb(ui.quizKind))}</p><p class="muted">${esc(quizPoolNote())}</p>${can ? '' : `<p class="warn">${esc(quizLack())}</p>`}<button type="button" class="btn primary block" data-act="qstart"${can ? '' : ' disabled'}>${start}</button></section>`
+    const heading = ui.quizKind === 'gram' ? 'Тест' : `Тест · ${activeListNames()}`
+    return `<section class="card"><h2>${esc(heading)}</h2>${seg(kinds, ui.quizKind, 'qkind')}<p class="muted">${esc(quizBlurb(ui.quizKind))}</p>${ownQuizButtons()}<p class="muted">${esc(quizPoolNote())}</p>${can ? '' : `<p class="warn">${esc(quizLack())}</p>`}<button type="button" class="btn primary block" data-act="qstart"${can ? '' : ' disabled'}>${start}</button></section>`
   }
   const quiz = ui.quiz
   if (quiz.i >= quiz.items.length) {

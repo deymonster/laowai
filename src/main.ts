@@ -632,7 +632,9 @@ async function saveEditor() {
   if (index >= 0) state.words[index] = word
   else state.words.unshift(word)
   if (topic === 'my' && !state.my.includes(word.id)) state.my.push(word.id)
-  if (!state.lv.includes(topic)) state.lv.push(topic)
+  const topicMeta = state.topics.find(item => item.id === topic)
+  if (topicMeta && !topicMeta.builtin) state.lv = [topic]
+  else if (!state.lv.includes(topic)) state.lv.push(topic)
   save()
   ui.editor = null
   ui.view = 'list'
@@ -809,7 +811,34 @@ async function act(name: string, el: HTMLElement) {
       openEditor(editor)
       return
     }
-    case 'folder': ui.showFolders = false; ui.folder = el.dataset.n || null; ui.q = ''; ui.openId = null; ui.status = 'all'; ui.listExtra = 0; break
+    case 'folder': {
+      const id = el.dataset.n || ''
+      const topic = state.topics.find(item => item.id === id)
+      ui.showFolders = false
+      ui.folder = topic ? topic.id : null
+      ui.q = ''
+      ui.openId = null
+      ui.status = 'all'
+      ui.listExtra = 0
+      if (topic && !topic.builtin) {
+        state.lv = [topic.id]
+        ui.focusTopic = topic.id
+        save()
+      }
+      break
+    }
+    case 'lvonly': {
+      const id = el.dataset.n || ''
+      const topic = state.topics.find(item => item.id === id)
+      if (!topic || topic.builtin || ui.quiz) return
+      state.lv = [topic.id]
+      ui.focusTopic = topic.id
+      ui.scrollTopic = topic.id
+      ui.folder = topic.id
+      ui.showFolders = false
+      save()
+      break
+    }
     case 'folders': ui.showFolders = true; ui.folder = null; ui.q = ''; ui.openId = null; break
     case 'maketopic':
       stopListen()
