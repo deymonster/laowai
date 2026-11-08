@@ -171,7 +171,8 @@ textarea { min-height: 72px; resize: vertical; }
 .linebox .field:first-child { margin-top: 0; }
 .ex { display: grid; gap: 4px; margin-top: 10px; padding: 10px; border-radius: 12px; background: var(--bg); }
 .exh { display: flex; justify-content: space-between; gap: 8px; align-items: center; font: 22px/1.4 "Songti SC", "Noto Serif SC", serif; }
-.grades { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.study-dock { margin-top: 12px; }
+.grades { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .grades button, .opt { min-height: 52px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); }
 .grades .again { background: color-mix(in srgb, var(--bad) 12%, var(--surface)); }
 .grades .hard { background: color-mix(in srgb, var(--t3) 16%, var(--surface)); }
@@ -218,8 +219,11 @@ textarea { min-height: 72px; resize: vertical; }
 .syl b { font: 24px/1 "Songti SC", "Noto Serif SC", serif; min-width: 28px; }
 .syl button { border: 1px solid var(--line); background: var(--bg); border-radius: 999px; min-height: 34px; padding: 0 10px; }
 .syl button[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
-.writer { width: min(280px, 100%); margin: 8px auto; }
-.writer svg { width: 100%; height: auto; }
+.charstep { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 8px 0; touch-action: pan-y; }
+.charstep b { min-width: 4.5em; text-align: center; font-variant-numeric: tabular-nums; font-size: 18px; }
+.charstep .btn { min-width: 64px; min-height: 48px; font-size: 22px; }
+.writer { width: min(100%, calc(100dvh - 240px)); max-width: 560px; aspect-ratio: 1; margin: 8px auto; }
+.writer svg { width: 100%; height: 100%; display: block; }
 .band { margin: 18px 0 0; font-size: 15px; }
 .rules { margin: 8px 0; padding-left: 18px; }
 .chart { height: 84px; display: flex; align-items: end; gap: 4px; }
@@ -256,6 +260,28 @@ textarea { min-height: 72px; resize: vertical; }
 .empty { text-align: center; padding: 12px 0; }
 #toast { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 14px; border-radius: 12px; z-index: 6; }
 #toast[hidden] { display: none; }
+@media (max-width: 859px) and (pointer: coarse) {
+  .study-run { padding-bottom: calc(230px + env(safe-area-inset-bottom)); }
+  .study-run .cell { width: 96px; height: 96px; }
+  .study-run .cells.sm .cell { width: 72px; height: 72px; }
+  .study-run .cell b { font-size: 56px; }
+  .study-run .cells.sm .cell b { font-size: 42px; }
+  .study-run .ru { font-size: 32px; }
+  .study-run .study-dock {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(58px + env(safe-area-inset-bottom));
+    z-index: 4;
+    margin: 0;
+    padding: 8px;
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--surface) 96%, transparent);
+    box-shadow: var(--shadow);
+  }
+  .study-run .grades button, .study-run .study-dock .btn { min-height: 64px; font-size: 16px; }
+  .study-run .kbd { display: none; }
+}
 @media (min-width: 860px) {
   .app { padding-bottom: 32px; }
   .nav { position: static; border: 1px solid var(--line); border-radius: 14px; padding: 6px; background: var(--surface); }

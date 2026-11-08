@@ -6,10 +6,10 @@ import { assertEdgeOpen, edgeCooling, edgeRate, noteEdgeFailure, noteEdgeSuccess
 import { analyze, searchKey, syllableAt, syllables } from './pinyin'
 import { judge, prettifyPinyin } from './pinyin'
 import { applySayHeard, canQuiz, makeQuiz, quizWords, sayLines } from './quiz'
-import { applyGrade, getP, planGrade, selectedWords, today } from './srs'
+import { applyAnswer, buildQueue, getP, intervalLabel, migrateProg, nextCard, selectedWords, startOfDayIndex, statusOf, today } from './srs'
 import { HSK_WORDS } from './hsk-list'
 import { SEED, TOPICS } from './seed'
-import { adoptRaw, freshState, state as deck } from './store'
+import { adoptRaw, freshState, resetState, state as deck } from './store'
 import { APP_VERSION } from './version'
 
 const expect = (name: string, got: unknown, want: unknown) => {
@@ -74,20 +74,79 @@ expect('syllable', syllableAt('nǐ hǎo', '你好', 1), 'hǎo')
 expect('syllable bank', syllableAt('yín háng', '银行', 1), 'háng')
 expect('syllable mismatch', syllableAt('nǐ', '你好', 1), '')
 
+const now = new Date(2026, 10, 8, 12, 0, 0).getTime()
+const day = today(now)
 const state = freshState()
-const day = today()
-applyGrade(state, 'g1', 'good')
-expect('box', getP(state, 'g1').b, 1)
-expect('due tomorrow', getP(state, 'g1').d, day + 1)
-applyGrade(state, 'g1', 'again')
-expect('again today', getP(state, 'g1').d, day)
-expect('hard new', planGrade(0, 'hard').wait, 0)
-expect('easy new', planGrade(0, 'easy').b, 2)
-expect('easy new wait', planGrade(0, 'easy').wait, 3)
-expect('hard stay', planGrade(3, 'hard').b, 3)
-expect('hard sooner', planGrade(3, 'hard').wait, 3)
-expect('good step', planGrade(3, 'good').wait, 14)
-expect('easy step', planGrade(3, 'easy').wait, 30)
+state.lv = ['greet']
+state.settings.dir = 'h2r'
+applyAnswer(state, 'g1', 'h2r', 'good', now, 0.5)
+const learning = getP(state, 'g1').h2r
+expect('good learns', learning.st, 'learn')
+expect('good step', learning.step, 1)
+expect('good in 10', learning.due, now + 10 * 60 * 1000)
+expect('reverse stays new', getP(state, 'g1').r2h.st, 'new')
+expect('started', getP(state, 'g1').b > 0, true)
+expect('new counted', state.nd[1], 1)
+applyAnswer(state, 'g1', 'h2r', 'good', learning.due, 0.5)
+const graduated = getP(state, 'g1').h2r
+expect('graduated', graduated.st, 'review')
+expect('grad ivl', graduated.ivl, 1)
+expect('grad due', graduated.due, learning.due + 86_400_000)
+applyAnswer(state, 'g2', 'h2r', 'again', now, 0.5)
+expect('again learn', getP(state, 'g2').h2r.st, 'learn')
+expect('again step', getP(state, 'g2').h2r.step, 0)
+expect('again minute', getP(state, 'g2').h2r.due, now + 60_000)
+const held = nextCard(getP(state, 'g2').h2r, 'hard', now, 0.5)
+expect('hard stays', held.step, 0)
+expect('hard minute', held.due, now + 60_000)
+applyAnswer(state, 'g3', 'h2r', 'easy', now, 0.5)
+expect('easy days', getP(state, 'g3').h2r.ivl, 4)
+expect('easy due', getP(state, 'g3').h2r.due, now + 4 * 86_400_000)
+const review = getP(state, 'g1').h2r
+expect('hard days', nextCard(review, 'hard', now, 0.5).ivl, 2)
+expect('good days', nextCard(review, 'good', now, 0.5).ivl, 3)
+expect('easy review', nextCard(review, 'easy', now, 0.5).ivl, 4)
+expect('hard ease', nextCard(review, 'hard', now, 0.5).ease, 2.35)
+expect('easy ease', nextCard(review, 'easy', now, 0.5).ease, 2.65)
+const lapse = nextCard(review, 'again', now, 0.5)
+expect('lapse', lapse.st, 'relearn')
+expect('lapse ivl', lapse.ivl, 1)
+expect('lapse ease', lapse.ease, 2.3)
+expect('lapse delay', lapse.due, now + 10 * 60_000)
+expect('fuzz low', nextCard({ st: 'review', ease: 2.5, due: now, step: 0, ivl: 10 }, 'good', now, 0).ivl, 24)
+expect('fuzz mid', nextCard({ st: 'review', ease: 2.5, due: now, step: 0, ivl: 10 }, 'good', now, 0.5).ivl, 25)
+const moved = migrateProg({ b: 3, d: day }, now)
+expect('moved ivl', moved?.h2r.ivl, 7)
+expect('moved ease', moved?.h2r.ease, 2.5)
+expect('moved state', moved?.h2r.st, 'review')
+expect('moved both', moved?.r2h.ivl === 7 && moved.r2h.due === moved.h2r.due, true)
+expect('moved due', moved?.h2r.due, startOfDayIndex(day, now))
+expect('mature', statusOf(migrateProg({ b: 5, d: day }, now)!), 'done')
+expect('short of mature', statusOf(migrateProg({ b: 4, d: day }, now)!), 'learn')
+expect('minutes', intervalLabel(60_000), '1 мин')
+expect('ten minutes', intervalLabel(10 * 60_000), '10 мин')
+expect('tomorrow', intervalLabel(86_400_000), 'завтра')
+expect('three days', intervalLabel(3 * 86_400_000), '3 дн.')
+const both = freshState()
+both.lv = ['greet']
+both.settings.dir = 'both'
+both.settings.perDay = 4
+expect('cards not words', buildQueue(both, undefined, now).items.length, 4)
+const capped = freshState()
+capped.lv = ['greet']
+capped.settings.dir = 'h2r'
+capped.rd = [day, 199]
+capped.prog.g1 = migrateProg({ b: 3, d: day - 1 }, now)!
+capped.prog.g2 = migrateProg({ b: 3, d: day - 1 }, now)!
+const limited = buildQueue(capped, undefined, now)
+expect('review room', limited.due, 1)
+expect('review rest', limited.capped, 1)
+expect('fresh dir', freshState().settings.dir, 'both')
+adoptRaw({ prog: { g1: { b: 6, d: day } }, settings: { dir: 'r2h' } })
+expect('kept dir', deck.settings.dir, 'r2h')
+expect('kept box', deck.prog.g1?.h2r.ivl, 60)
+expect('kept side', deck.prog.g1?.r2h.ivl, 60)
+resetState()
 
 expect('query han', dictionaryQuery('银行')?.q, '银行')
 expect('query ru', dictionaryQuery('банк!')?.q, 'банк')
@@ -109,7 +168,7 @@ expect('hsk bands', HSK.length, 6)
 for (const level of HSK) expect(`hsk ${level} rules`, GRAMMAR.filter(rule => rule.level === level).length >= 4, true)
 expect('goal default', freshState().settings.goal, 0)
 expect('say show default', freshState().settings.sayShow, true)
-expect('app version', APP_VERSION, '1.0.13')
+expect('app version', APP_VERSION, '1.0.14')
 expect('g1 level', freshState().words.find(word => word.id === 'g1')?.level, 1)
 expect('bank level', freshState().words.find(word => word.id === 'r1')?.level, 3)
 expect('default hsk', freshState().hsk.join(','), '1,2,3,4,5,6')

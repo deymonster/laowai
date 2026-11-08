@@ -1,6 +1,7 @@
 import { exampleFits } from './han'
 import { HSK_WORDS } from './hsk-list'
 import { SEED, TOPICS } from './seed'
+import { migrateProg } from './srs'
 import type { Sample, Settings, State, Topic, Word } from './types'
 
 const KEY = 'zici-v1'
@@ -8,7 +9,7 @@ const KEY = 'zici-v1'
 export const RATES = [0.75, 1, 1.25, 1.5]
 
 export function defaultSettings(): Settings {
-  return { dir: 'h2r', pyFront: false, strict: false, rate: 1, voice: 'auto', tc: 1, perDay: 20, goal: 0, theme: 'auto', sayShow: true }
+  return { dir: 'both', pyFront: false, strict: false, rate: 1, voice: 'auto', tc: 1, perDay: 20, goal: 0, theme: 'auto', sayShow: true }
 }
 
 export function freshState(): State {
@@ -20,6 +21,7 @@ export function freshState(): State {
     my: [],
     days: {},
     nd: [0, 0],
+    rd: [0, 0],
     lv: ['greet'],
     hsk: [1, 2, 3, 4, 5, 6],
     settings: defaultSettings(),
@@ -86,7 +88,8 @@ function normalize(raw: unknown): State {
   }
   if (data.prog && typeof data.prog === 'object') {
     for (const [id, prog] of Object.entries(data.prog)) {
-      if (prog && prog.b >= 1 && prog.b <= 6 && Number.isFinite(prog.d)) base.prog[id] = { b: prog.b, d: prog.d }
+      const next = migrateProg(prog)
+      if (next) base.prog[id] = next
     }
   }
   if (Array.isArray(data.my)) base.my = data.my.filter(id => typeof id === 'string').slice(0, 6000)
@@ -96,6 +99,7 @@ function normalize(raw: unknown): State {
     }
   }
   if (Array.isArray(data.nd) && data.nd.length === 2) base.nd = [Number(data.nd[0]) || 0, Number(data.nd[1]) || 0]
+  if (Array.isArray(data.rd) && data.rd.length === 2) base.rd = [Number(data.rd[0]) || 0, Number(data.rd[1]) || 0]
   if (Array.isArray(data.lv)) {
     const lv = data.lv.filter(id => typeof id === 'string' && base.topics.some(topic => topic.id === id))
     if (lv.length) base.lv = lv
@@ -106,7 +110,7 @@ function normalize(raw: unknown): State {
   }
   const settings = data.settings
   if (settings && typeof settings === 'object') {
-    if (settings.dir === 'h2r' || settings.dir === 'r2h') base.settings.dir = settings.dir
+    if (settings.dir === 'h2r' || settings.dir === 'r2h' || settings.dir === 'both') base.settings.dir = settings.dir
     if (typeof settings.pyFront === 'boolean') base.settings.pyFront = settings.pyFront
     if (typeof settings.strict === 'boolean') base.settings.strict = settings.strict
     if (typeof settings.sayShow === 'boolean') base.settings.sayShow = settings.sayShow

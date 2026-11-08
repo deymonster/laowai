@@ -2,19 +2,20 @@ import './style.css'
 import { unlock } from './achieve'
 import { lookupWord, type DictHit } from './dict'
 import { GRAMMAR } from './grammar'
-import { cleanGloss, esc, exampleFits, hanChars, studyExample, uid } from './han'
+import { cleanGloss, exampleFits, hanChars, studyExample, uid } from './han'
 import { analyze, compose, judge, prettifyPinyin, syllableAt, type Reading } from './pinyin'
 import { blankEditor, ui, type Editor, type QuizKind } from './session'
 import { setSpeakActivity, setSpeakNotice, speakingNow, speak, stopSpeak, warm } from './speech'
 import { applySayHeard, lineOf, makeQuiz } from './quiz'
 import { mountStroke, replayStroke, stepStroke } from './strokes'
-import { applyGrade, applyResult, buildQueue, findWord, selectedWords, shuffle } from './srs'
+import { applyAnswer, buildQueue, findWord, intervalLabel, noteDay, orderLeft, selectedWords, shuffle, type Grade } from './srs'
 import { adoptRaw, load, resetState, save, state } from './store'
 import type { Sample, Word } from './types'
-import { gramListHtml, dictHitHtml, editorFromWord, listResults, readingExtras, renderApp, writeGlossInner } from './view'
+import { gramListHtml, dictHitHtml, editorFromWord, listResults, readingExtras, renderApp, writeCharsHtml, writeGlossInner } from './view'
 import { finishListen, listenLive, listening, stopListen } from './pronounce'
 
 let toastTimer = 0
+let swallowClick = false
 let wordToken = 0
 let exampleToken = 0
 let lookupTimer = 0
@@ -174,8 +175,8 @@ function draw() {
 
 function warmVisible() {
   if (state.settings.voice === 'system') return
-  if (ui.view === 'study' && ui.study?.ids.length) {
-    const word = findWord(state, ui.study.ids[0])
+  if (ui.view === 'study' && ui.study?.left.length) {
+    const word = findWord(state, ui.study.left[0].id)
     if (word) warm(word.hanzi, word.pinyin)
   }
   const quiz = ui.quiz
@@ -205,28 +206,51 @@ function persist() {
   if (fresh.length) toast(fresh.map(title => `Достижение: ${title}`).join(' '))
 }
 
+function waitingStudy(): boolean {
+  if (ui.view !== 'study') return false
+  const head = ui.study?.left[0]
+  if (head && head.due > Date.now()) return true
+  if (ui.study) return false
+  const next = buildQueue(state).next
+  return !!next && next.due > Date.now()
+}
+
 function armClock() {
   window.clearInterval(clockTimer)
   clockTimer = 0
   const quiz = ui.quiz
-  if (!quiz || quiz.kind !== 'speed' || quiz.i >= quiz.items.length) return
+  if (quiz && quiz.kind === 'speed' && quiz.i < quiz.items.length) {
+    clockTimer = window.setInterval(() => {
+      const current = ui.quiz
+      if (!current || current.kind !== 'speed' || current.i >= current.items.length) {
+        window.clearInterval(clockTimer)
+        return
+      }
+      const left = current.until - Date.now()
+      if (left <= 0) {
+        current.i = current.items.length
+        if (current.ok > state.rec) state.rec = current.ok
+        persist()
+        draw()
+        return
+      }
+      const el = document.getElementById('qclock')
+      if (el) el.textContent = `${Math.ceil(left / 1000)} с`
+    }, 200)
+    return
+  }
+  if (!waitingStudy()) return
   clockTimer = window.setInterval(() => {
-    const current = ui.quiz
-    if (!current || current.kind !== 'speed' || current.i >= current.items.length) {
+    if (!waitingStudy()) {
       window.clearInterval(clockTimer)
-      return
-    }
-    const left = current.until - Date.now()
-    if (left <= 0) {
-      current.i = current.items.length
-      if (current.ok > state.rec) state.rec = current.ok
-      persist()
       draw()
       return
     }
-    const el = document.getElementById('qclock')
-    if (el) el.textContent = `${Math.ceil(left / 1000)} с`
-  }, 200)
+    const head = ui.study?.left[0]
+    const due = head && head.due > Date.now() ? head.due : buildQueue(state).next?.due || 0
+    const el = document.getElementById('waitleft')
+    if (el && due > Date.now()) el.textContent = intervalLabel(due - Date.now())
+  }, 1000)
 }
 
 function field(id: string): string {
@@ -524,11 +548,11 @@ function bindLive() {
     const update = () => {
       ui.writeText = write.value
       ui.writeCi = 0
+      const nav = writeCharsHtml(ui.writeText, ui.writeCi)
       const box = document.getElementById('wchars')
-      if (box) {
-        const chars = hanChars(ui.writeText).slice(0, 8)
-        box.innerHTML = chars.map((ch, index) => `<button type="button" class="chip hz${index === 0 ? ' on' : ''}" data-act="wchar" data-i="${index}" lang="zh-Hans">${esc(ch)}</button>`).join('')
-      }
+      const step = document.getElementById('charstep')
+      if (box) box.innerHTML = nav.chips
+      if (step) step.innerHTML = nav.step
       void mountStroke()
       void refreshWriteGloss()
     }
@@ -543,6 +567,22 @@ function bindLive() {
   document.getElementById('ans')?.addEventListener('keydown', event => {
     if (event.key === 'Enter') { event.preventDefault(); void act('tcheck', document.body) }
   })
+  const step = document.getElementById('charstep')
+  if (step) {
+    let x = 0
+    let y = 0
+    step.addEventListener('pointerdown', event => {
+      x = event.clientX
+      y = event.clientY
+    })
+    step.addEventListener('pointerup', event => {
+      const dx = event.clientX - x
+      const dy = event.clientY - y
+      if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy)) return
+      swallowClick = true
+      void act(dx < 0 ? 'wnext' : 'wprev', step)
+    })
+  }
 }
 
 function openEditor(editor: Editor) {
@@ -747,27 +787,47 @@ async function act(name: string, el: HTMLElement) {
       state.hsk.sort((a, b) => a - b)
       save(); break
     }
-    case 'dir': state.settings.dir = el.dataset.v === 'r2h' ? 'r2h' : 'h2r'; save(); break
+    case 'dir': {
+      const value = el.dataset.v
+      state.settings.dir = value === 'h2r' || value === 'r2h' || value === 'both' ? value : 'both'
+      save(); break
+    }
     case 'start':
     case 'more': {
       const queue = buildQueue(state, name === 'more' ? 10 : undefined)
-      ui.study = { ids: queue.ids, kind: queue.kind, total: queue.ids.length, n: 0, failed: [], show: false }
+      if (!queue.items.length) return
+      ui.study = { left: queue.items, total: queue.items.length, n: 0, failed: [], show: false }
+      ui.view = 'study'; break
+    }
+    case 'soon': {
+      const next = buildQueue(state).next
+      if (!next) return
+      ui.study = { left: [{ ...next, due: 0 }], total: 1, n: 0, failed: [], show: false }
       ui.view = 'study'; break
     }
     case 'show': if (ui.study) ui.study.show = true; break
+    case 'now': {
+      const head = ui.study?.left[0]
+      if (head) head.due = 0
+      break
+    }
     case 'grade': {
       const sess = ui.study
-      if (!sess?.ids.length) return
-      const id = sess.ids.shift() || ''
-      const grade = el.dataset.g === 'again' || el.dataset.g === 'hard' || el.dataset.g === 'easy' ? el.dataset.g : el.dataset.g === 'good' ? 'good' : ''
+      const head = sess?.left[0]
+      if (!sess || !head || head.due > Date.now()) return
+      const grade: Grade | '' = el.dataset.g === 'again' || el.dataset.g === 'hard' || el.dataset.g === 'good' || el.dataset.g === 'easy' ? el.dataset.g : ''
       if (!grade) return
-      applyGrade(state, id, grade)
-      if (grade === 'again') {
-        if (!sess.failed.includes(id)) sess.ids.push(id)
-        sess.failed.push(id)
-      } else state.cor += 1
+      sess.left.shift()
+      const next = applyAnswer(state, head.id, head.side, grade)
+      const key = `${head.id}:${head.side}`
+      if (next.st === 'learn' || next.st === 'relearn') {
+        sess.left.push({ id: head.id, side: head.side, due: next.due })
+        if (grade === 'again') sess.failed.push(key)
+      }
+      if (grade !== 'again') state.cor += 1
       sess.n += 1
       sess.show = false
+      sess.left = orderLeft(sess.left, Date.now())
       persist(); break
     }
     case 'stop': ui.study = null; break
@@ -940,7 +1000,7 @@ async function act(name: string, el: HTMLElement) {
         quiz.ok += 1
         state.cor += 1
       } else quiz.bad.push(item.id)
-      if (findWord(state, item.id)) applyResult(state, item.id, ok)
+      if (findWord(state, item.id)) noteDay(state)
       if (quiz.kind === 'speed') {
         if (!ok) quiz.until -= 3000
         if (quiz.until <= Date.now() || quiz.i + 1 >= quiz.items.length) {
@@ -1029,21 +1089,16 @@ async function act(name: string, el: HTMLElement) {
       draw()
       return
     }
-    case 'sgrade': {
-      const grade = el.dataset.g
-      const text = ui.writeText.trim()
-      const chars = hanChars(text)
-      const word = chars.length && ui.writeCi === chars.length - 1 ? selectedWords(state).find(item => item.hanzi === text) : undefined
-      if (!word || (grade !== 'again' && grade !== 'hard' && grade !== 'good' && grade !== 'easy')) return
-      applyGrade(state, word.id, grade)
-      save()
-      const host = document.getElementById('strokeGrade')
-      if (host) host.innerHTML = '<p class="muted">Оценка записана.</p>'
-      toast('Оценка записана')
-      return
-    }
     case 'wmode': ui.writeMode = el.dataset.v === 'type' ? 'type' : 'stroke'; ui.type = null; break
     case 'wchar': ui.writeCi = Number(el.dataset.i) || 0; break
+    case 'wprev':
+    case 'wnext': {
+      const chars = hanChars(ui.writeText).slice(0, 8)
+      const next = ui.writeCi + (name === 'wnext' ? 1 : -1)
+      if (!chars.length || next < 0 || next >= chars.length) return
+      ui.writeCi = next
+      break
+    }
     case 'wpick': ui.writeText = el.dataset.h || ''; ui.writeCi = 0; break
     case 'smode': ui.strokePlay = el.dataset.v === 'quiz' ? 'quiz' : 'watch'; break
     case 'wplay':
@@ -1072,7 +1127,7 @@ async function act(name: string, el: HTMLElement) {
         sess.ok += 1
         state.cor += 1
       } else sess.bad.push(word.id)
-      applyResult(state, word.id, ok)
+      noteDay(state)
       persist(); break
     }
     case 'tnext': {
@@ -1174,6 +1229,7 @@ async function act(name: string, el: HTMLElement) {
 }
 
 document.body.addEventListener('click', event => {
+  if (swallowClick) { swallowClick = false; return }
   const el = (event.target as HTMLElement).closest('[data-act]') as HTMLElement | null
   if (!el) return
   void act(el.dataset.act || '', el)
@@ -1182,14 +1238,14 @@ document.body.addEventListener('click', event => {
 document.addEventListener('keydown', event => {
   const tag = (event.target as HTMLElement | null)?.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-  if (ui.view === 'study' && ui.study?.ids.length) {
+  if (ui.view === 'study' && ui.study?.left.length && ui.study.left[0].due <= Date.now()) {
     if (event.key === ' ' && !ui.study.show) { event.preventDefault(); void act('show', document.body) }
     if (ui.study.show) {
       const grade = event.key === '1' ? 'again' : event.key === '2' ? 'hard' : event.key === '3' ? 'good' : event.key === '4' ? 'easy' : ''
       if (grade) void act('grade', btn(grade))
     }
     if (event.key === '5') {
-      const word = findWord(state, ui.study.ids[0])
+      const word = findWord(state, ui.study.left[0].id)
       if (word) void speak(word.hanzi, word.pinyin)
     }
   }

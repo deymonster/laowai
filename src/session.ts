@@ -1,6 +1,6 @@
 import type { DictHit } from './dict'
 import type { Reading } from './pinyin'
-import type { Sample } from './types'
+import type { Sample, Side } from './types'
 
 export type ViewName = 'study' | 'quiz' | 'gram' | 'list' | 'write' | 'prog' | 'edit' | 'set'
 export type QuizKind = 'h2r' | 'r2h' | 'h2p' | 'aud' | 'sent' | 'cloze' | 'gram' | 'speed' | 'say'
@@ -34,9 +34,10 @@ export type Editor = {
   lastHit: string
 }
 
+export type StudyItem = { id: string; side: Side; due: number }
+
 export type StudySess = {
-  ids: string[]
-  kind: Record<string, 'new' | 'rev'>
+  left: StudyItem[]
   total: number
   n: number
   failed: string[]

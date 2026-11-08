@@ -5,7 +5,8 @@ import { alignHeard, pronounceSupport, sayFixes } from './pronounce'
 import { canQuiz, grammarPool, lineOf, quizBlurb, quizWords, sayLines } from './quiz'
 import { compose, pyHTML, searchKey, toneOf, type Reading } from './pinyin'
 import { blankEditor, ui, type Editor, type QuizItem } from './session'
-import { findWord, getP, inTopic, selectedWords, statusOf, streak, today, topicCount, buildQueue, dueLabel, nextDue, type Grade } from './srs'
+import { findWord, getP, gradeDelay, inTopic, intervalLabel, selectedWords, statusOf, streak, today, topicCount, buildQueue, type Grade } from './srs'
+import type { Side } from './types'
 import { RATES, state } from './store'
 import type { Sample, Word } from './types'
 import { APP_VERSION } from './version'
@@ -135,35 +136,45 @@ function phraseLines(word: Word): string {
   }).join('')}</span>`
 }
 
+function studyHome(queue: ReturnType<typeof buildQueue>): string {
+  const repeat = queue.learn + queue.due
+  const stats = `<div class="stats"><div><b>${repeat}</b><span>к повторению</span></div><div><b>${queue.allow}</b><span>новых</span></div><div><b>${queue.fresh}</b><span>ещё не начато</span></div></div>`
+  const dir = `<p class="field">Направление</p>${seg([['both', 'Обе стороны'], ['h2r', 'Иероглиф → перевод'], ['r2h', 'Перевод → иероглиф']], state.settings.dir, 'dir')}<p class="hint">Обе стороны — две карточки на слово: с иероглифа и с перевода. Лимит дня считает карточки.</p>`
+  const cap = queue.capped ? `<p class="hint">В этот заход не больше 200 повторений. Ещё ${queue.capped} останутся в очереди.</p>` : ''
+  if (!selectedWords(state).length) return '<div class="empty"><h2>В выбранных уровнях и подборках пусто</h2><p>Включите уровень HSK или подборку. Новое слово можно добавить в «Словах».</p></div>'
+  if (queue.items.length) return `${stats}${dir}${cap}<button type="button" class="btn primary block" data-act="start">Начать · ${queue.items.length}</button>`
+  if (queue.next && queue.next.due > Date.now()) {
+    const more = queue.fresh ? '<button type="button" class="btn" data-act="more">Ещё 10 новых</button>' : ''
+    return `${stats}${dir}<div class="empty"><h2>Следующая карточка через <b id="waitleft">${intervalLabel(queue.next.due - Date.now())}</b></h2><p>Она уже в учёбе и вернётся сама. Можно открыть её раньше.</p><button type="button" class="btn primary" data-act="soon">Показать сейчас</button>${more}</div>`
+  }
+  return `${stats}${dir}<div class="empty"><h2>На сегодня всё</h2><p>${queue.fresh ? 'Дневной лимит новых карточек выполнен.' : 'Новых карточек и повторов нет.'}</p>${queue.fresh ? '<button type="button" class="btn primary" data-act="more">Ещё 10 новых</button>' : ''}</div>`
+}
+
 function studyView(): string {
   const queue = buildQueue(state)
   if (!ui.study) {
-    const total = queue.ids.length
-    let body = ''
-    if (!selectedWords(state).length) body = '<div class="empty"><h2>В выбранных уровнях и подборках пусто</h2><p>Включите уровень HSK или подборку. Новое слово можно добавить в «Словах».</p></div>'
-    else if (total) body = `<div class="stats"><div><b>${queue.due}</b><span>к повторению</span></div><div><b>${queue.allow}</b><span>новых</span></div><div><b>${queue.fresh}</b><span>ещё не начато</span></div></div><p class="field">Направление</p>${seg([['h2r', 'Иероглиф → перевод'], ['r2h', 'Перевод → иероглиф']], state.settings.dir, 'dir')}<button type="button" class="btn primary block" data-act="start">Начать · ${total}</button>`
-    else body = `<div class="empty"><h2>На сегодня всё</h2><p>${queue.fresh ? 'Дневной лимит новых слов выполнен.' : 'Новых слов и повторов нет.'}</p>${queue.fresh ? '<button type="button" class="btn primary" data-act="more">Ещё 10 новых</button>' : ''}</div>`
     const narrow = state.hsk.length < HSK.length ? ` · HSK ${state.hsk.join(', ')}` : ''
-    return `<section class="card"><h2>Сегодня · ${esc(state.lv.map(topicName).join(', '))}${esc(narrow)}</h2>${goal()}${body}</section>`
+    return `<section class="card"><h2>Сегодня · ${esc(state.lv.map(topicName).join(', '))}${esc(narrow)}</h2>${goal()}${studyHome(queue)}</section>`
   }
   const sess = ui.study
-  if (!sess.ids.length) return `<section class="card"><div class="empty"><h2>Сессия закончена</h2><p>Карточек: ${sess.total}. Ошибок: ${sess.failed.length}.</p></div><button type="button" class="btn primary block" data-act="stop">Готово</button></section>`
-  const word = findWord(state, sess.ids[0])
+  const head = sess.left[0]
+  if (!head) return `<section class="card"><div class="empty"><h2>Сессия закончена</h2><p>Ответов: ${sess.n}. Карточек было ${sess.total}. Не вспомнили: ${sess.failed.length}.</p></div><button type="button" class="btn primary block" data-act="stop">Готово</button></section>`
+  if (head.due > Date.now()) {
+    return `<section class="card"><div class="empty"><h2>Следующая через <b id="waitleft">${intervalLabel(head.due - Date.now())}</b></h2><p>Короткие шаги возвращают карточку, когда время вышло. Остальные на сегодня уже пройдены.</p><button type="button" class="btn primary" data-act="now">Показать сейчас</button> <button type="button" class="btn" data-act="stop">Закончить</button></div></section>`
+  }
+  const word = findWord(state, head.id)
   if (!word) return ''
-  const kind = sess.failed.includes(word.id) ? 'Ещё раз' : sess.kind[word.id] === 'new' ? 'Новое' : 'Повторение'
-  const grades = sess.show ? gradeButtons(word.id) : '<button type="button" class="btn primary block" data-act="show">Показать ответ</button><p class="kbd">Пробел показывает ответ, 1–4 ставят оценку, 5 включает звук</p>'
-  return `<section class="card"><div class="rowtop"><span class="tag">${esc(topicName(word.topic))}</span><span class="tag">HSK ${word.level}</span><span class="tag">${kind} · ${sess.n} / ${sess.total}</span><span class="tools">${starBtn(word)}${speakBtn(word.hanzi, 'Произнести', word.pinyin)}</span></div><div class="prog"><i style="width:${Math.round(sess.n / sess.total * 100)}%"></i></div>${wordCard(word, state.settings.dir === 'h2r' ? 'han' : 'ru', sess.show, false)}${grades}${sess.show ? extra(word) : ''}</section><p class="center"><button type="button" class="btn tiny" data-act="stop">Завершить</button></p>`
+  const card = getP(state, word.id)[head.side]
+  const kind = card.st === 'new' ? 'Новое' : card.st === 'relearn' ? 'Снова' : card.st === 'learn' ? 'Учу' : 'Повторение'
+  const way = head.side === 'h2r' ? 'Знак → перевод' : 'Перевод → знак'
+  const width = Math.min(100, Math.round(sess.n / Math.max(1, sess.total) * 100))
+  const grades = sess.show ? gradeButtons(word.id, head.side) : '<button type="button" class="btn primary block" data-act="show">Показать ответ</button><p class="kbd">Пробел показывает ответ, 1–4 ставят оценку, 5 включает звук</p>'
+  return `<section class="card"><div class="rowtop"><span class="tag">${esc(topicName(word.topic))}</span><span class="tag">HSK ${word.level}</span><span class="tag">${way}</span><span class="tag">${kind} · ${sess.n} / ${sess.total}</span><span class="tools">${starBtn(word)}${speakBtn(word.hanzi, 'Произнести', word.pinyin)}<button type="button" class="btn tiny" data-act="stop">Завершить</button></span></div><div class="prog"><i style="width:${width}%"></i></div>${wordCard(word, head.side === 'h2r' ? 'han' : 'ru', sess.show, false)}${sess.show ? extra(word) : ''}<div class="study-dock">${grades}</div></section>`
 }
 
-function gradeWhen(grade: Grade, wait: number): string {
-  if (grade === 'again') return 'сейчас'
-  if (wait <= 0) return 'позже'
-  return dueLabel(wait)
-}
-
-function gradeButtons(id: string): string {
+function gradeButtons(id: string, side: Side): string {
   const items: [Grade, string][] = [['again', 'Не помню'], ['hard', 'С трудом'], ['good', 'Помню'], ['easy', 'Легко']]
-  return `<div class="grades">${items.map(([grade, label]) => `<button type="button" class="${grade}" data-act="grade" data-g="${grade}">${label}<small>${gradeWhen(grade, nextDue(state, id, grade))}</small></button>`).join('')}</div>`
+  return `<div class="grades">${items.map(([grade, label]) => `<button type="button" class="${grade}" data-act="grade" data-g="${grade}">${label}<small>${intervalLabel(gradeDelay(state, id, side, grade))}</small></button>`).join('')}</div>`
 }
 
 function goal(): string {
@@ -380,7 +391,7 @@ function matches(word: Word): boolean {
   if (ui.folder) {
     if (!inTopic(state, word, ui.folder)) return false
   } else if (!state.lv.some(id => inTopic(state, word, id))) return false
-  const st = statusOf(getP(state, word.id).b)
+  const st = statusOf(getP(state, word.id))
   if (ui.status !== 'all' && st !== ui.status) return false
   const q = searchKey(ui.q.trim())
   if (!q) return true
@@ -391,7 +402,7 @@ function matches(word: Word): boolean {
 
 function wordArticle(word: Word): string {
   const open = ui.openId === word.id
-  const st = statusOf(getP(state, word.id).b)
+  const st = statusOf(getP(state, word.id))
   const mark = st === 'new' ? 'новое' : st === 'done' ? 'выучено' : 'учу'
   return `<article class="word"><button type="button" class="wordhead" data-act="open" data-id="${esc(word.id)}"><span class="hz" lang="zh-Hans">${esc(word.hanzi)}</span><span><b class="py">${esc(word.pinyin)}</b><small>${esc(word.ru)}</small></span><em>HSK ${word.level} · ${mark}</em>${phraseLines(word)}</button>${open ? `<div class="wordbody">${speakBtn(word.hanzi, 'Произнести', word.pinyin)}${starBtn(word)}<button type="button" class="btn tiny" data-act="edit" data-id="${esc(word.id)}">Изменить</button>${word.custom ? `<button type="button" class="btn tiny danger" data-act="del" data-id="${esc(word.id)}">Удалить</button>` : ''}${extra(word)}</div>` : ''}</article>`
 }
@@ -508,11 +519,22 @@ function writePicks(): string {
   }).join('')
 }
 
+export function writeCharsHtml(text: string, index: number): { chips: string; step: string } {
+  const chars = hanChars(text).slice(0, 8)
+  const at = chars.length ? Math.min(Math.max(index, 0), chars.length - 1) : 0
+  const chips = chars.map((ch, i) => `<button type="button" class="chip hz${i === at ? ' on' : ''}" data-act="wchar" data-i="${i}" lang="zh-Hans">${esc(ch)}</button>`).join('')
+  if (chars.length < 2) return { chips, step: chars.length ? '<b>1 / 1</b>' : '' }
+  return {
+    chips,
+    step: `<button type="button" class="btn" data-act="wprev" aria-label="Предыдущий знак"${at === 0 ? ' disabled' : ''}>←</button><b>${at + 1} / ${chars.length}</b><button type="button" class="btn" data-act="wnext" aria-label="Следующий знак"${at === chars.length - 1 ? ' disabled' : ''}>→</button>`,
+  }
+}
+
 function strokeView(): string {
-  const chars = hanChars(ui.writeText).slice(0, 8)
-  const chips = chars.map((ch, index) => `<button type="button" class="chip hz${index === ui.writeCi ? ' on' : ''}" data-act="wchar" data-i="${index}" lang="zh-Hans">${esc(ch)}</button>`).join('')
+  const nav = writeCharsHtml(ui.writeText, ui.writeCi)
+  const many = hanChars(ui.writeText).slice(0, 8).length > 1
   const picks = writePicks()
-  return `<section class="card"><h2>Порядок черт</h2><details><summary>Правила написания</summary><ol class="rules"><li>Сверху вниз.</li><li>Слева направо.</li><li>Горизонталь раньше вертикали, если они пересекаются.</li><li>Сначала левая и верхняя стороны рамки, потом содержимое, рамку закрывают в конце.</li><li>У симметричного знака сначала середина.</li><li>Точка справа и мелкие черты чаще в конце.</li></ol><p class="muted">Ввод пиньиня: тоны цифрами, <b>ni3 hao3</b>. Буква <b>ü</b> вводится как <b>v</b>.</p></details><div class="search"><input id="wtxt" lang="zh-Hans" value="${esc(ui.writeText)}" placeholder="Иероглиф или слово" aria-label="Иероглиф" autocomplete="off"></div><div class="topics" id="wchars">${chips}</div><div class="gloss" id="wgloss">${writeGlossInner()}</div>${seg([['watch', 'Смотреть'], ['quiz', 'Обводить']], ui.strokePlay, 'smode')}<div id="writer" class="writer"></div><p class="muted center" id="strokeMsg">${esc(ui.strokeMsg)}</p><div id="strokeGrade"></div><div class="acts center">${ui.strokePlay === 'watch' ? `<button type="button" class="btn" data-act="wplay">Показать</button><button type="button" class="btn" data-act="wstep">По одной черте</button><button type="button" class="btn" data-act="wslow" aria-pressed="${ui.strokeSlow}">Медленно${ui.strokeSlow ? ' ✓' : ''}</button><button type="button" class="btn" data-act="wreset">Сначала</button>` : '<button type="button" class="btn" data-act="wplay">Начать обводку</button>'}</div>${picks}</section>`
+  return `<section class="card write-screen"><h2>Порядок черт</h2><details><summary>Правила написания</summary><ol class="rules"><li>Сверху вниз.</li><li>Слева направо.</li><li>Горизонталь раньше вертикали, если они пересекаются.</li><li>Сначала левая и верхняя стороны рамки, потом содержимое, рамку закрывают в конце.</li><li>У симметричного знака сначала середина.</li><li>Точка справа и мелкие черты чаще в конце.</li></ol><p class="muted">Ввод пиньиня: тоны цифрами, <b>ni3 hao3</b>. Буква <b>ü</b> вводится как <b>v</b>.</p></details><div class="search"><input id="wtxt" lang="zh-Hans" value="${esc(ui.writeText)}" placeholder="Иероглиф или слово" aria-label="Иероглиф" autocomplete="off"></div><div class="charstep" id="charstep">${nav.step}</div>${many ? '<p class="hint center">Смахните по номеру знака или нажмите стрелку.</p>' : ''}<div class="topics" id="wchars">${nav.chips}</div><div class="gloss" id="wgloss">${writeGlossInner()}</div>${seg([['watch', 'Смотреть'], ['quiz', 'Обводить']], ui.strokePlay, 'smode')}<div id="writer" class="writer"></div><p class="muted center" id="strokeMsg">${esc(ui.strokeMsg)}</p><div class="acts center">${ui.strokePlay === 'watch' ? `<button type="button" class="btn" data-act="wplay">Показать</button><button type="button" class="btn" data-act="wstep">По одной черте</button><button type="button" class="btn" data-act="wslow" aria-pressed="${ui.strokeSlow}">Медленно${ui.strokeSlow ? ' ✓' : ''}</button><button type="button" class="btn" data-act="wreset">Сначала</button>` : '<button type="button" class="btn" data-act="wplay">Начать обводку</button>'}</div>${picks}</section>`
 }
 
 function typeView(): string {
@@ -535,7 +557,7 @@ function writeView(): string {
 
 function progView(): string {
   const day = today()
-  const learned = state.words.filter(word => statusOf(getP(state, word.id).b) === 'done').length
+  const learned = state.words.filter(word => statusOf(getP(state, word.id)) === 'done').length
   const bars = []
   let max = 1
   for (let i = 13; i >= 0; i--) {
@@ -547,15 +569,15 @@ function progView(): string {
   const levelCards = HSK.map(level => {
     const words = state.words.filter(word => word.level === level)
     if (!words.length) return `<section class="card thin"><b>Уровень ${level}</b><p class="muted">Пока нет слов. Новое слово можно сохранить на этот уровень.</p></section>`
-    const done = words.filter(word => statusOf(getP(state, word.id).b) === 'done').length
-    const learn = words.filter(word => statusOf(getP(state, word.id).b) === 'learn').length
+    const done = words.filter(word => statusOf(getP(state, word.id)) === 'done').length
+    const learn = words.filter(word => statusOf(getP(state, word.id)) === 'learn').length
     return `<section class="card thin"><b>Уровень ${level}</b><div class="bar"><i style="width:${done / words.length * 100}%"></i><i class="soft" style="width:${learn / words.length * 100}%"></i></div><p class="muted">${done} выучено · ${learn} в работе · ${words.length - done - learn} новых</p></section>`
   }).join('')
   const cards = state.topics.map(topic => {
     const words = state.words.filter(word => inTopic(state, word, topic.id))
     if (!words.length) return ''
-    const done = words.filter(word => statusOf(getP(state, word.id).b) === 'done').length
-    const learn = words.filter(word => statusOf(getP(state, word.id).b) === 'learn').length
+    const done = words.filter(word => statusOf(getP(state, word.id)) === 'done').length
+    const learn = words.filter(word => statusOf(getP(state, word.id)) === 'learn').length
     return `<section class="card thin"><b>${esc(topic.name)}</b><div class="bar"><i style="width:${done / words.length * 100}%"></i><i class="soft" style="width:${learn / words.length * 100}%"></i></div><p class="muted">${done} выучено · ${learn} в работе · ${words.length - done - learn} новых</p></section>`
   }).join('')
   const badges = `<section class="card"><h2>Достижения</h2><div class="ach">${ACH.map(item => {
@@ -569,7 +591,7 @@ function progView(): string {
 
 function settingsView(): string {
   const set = state.settings
-  return `<section class="card"><div class="rowtop"><h2>Настройки</h2><button type="button" class="btn tiny" data-act="home">Закрыть</button></div><p class="field">Озвучка</p>${seg([['auto', 'Авто'], ['dict', 'Словарь'], ['system', 'zh-CN']], set.voice, 'voice')}<p class="muted">Авто: голос Xiaoxiao через этот сервер, затем запись Youdao, затем голос zh-CN устройства.</p><p class="field">Скорость</p>${seg(RATES.map(rate => [String(rate), `${String(rate).replace('.', ',')}×`]), String(set.rate), 'rate')}<p class="field">Тема</p>${seg([['auto', 'Авто'], ['light', 'Светлая'], ['dark', 'Тёмная'], ['jade', 'Нефрит'], ['paper', 'Бумага'], ['ink', 'Тушь']], set.theme, 'theme')}<p class="field">Цвета тонов</p>${seg([['0', 'Выкл'], ['1', 'Пиньинь'], ['2', 'Пиньинь и знаки']], String(set.tc), 'tc')}<p class="muted">1-й тон синий, 2-й зелёный, 3-й оранжевый, 4-й фиолетовый.</p><label class="check"><input type="checkbox" data-act="flag" data-k="pyFront"${set.pyFront ? ' checked' : ''}> Пиньинь сразу на лицевой стороне</label><label class="check"><input type="checkbox" data-act="flag" data-k="strict"${set.strict ? ' checked' : ''}> Строго проверять тоны</label><label class="check"><input type="checkbox" data-act="flag" data-k="sayShow"${set.sayShow ? ' checked' : ''}> Показывать иероглифы и пиньинь в произношении</label><p class="field">Новых слов в день</p>${seg([['10', '10'], ['20', '20'], ['30', '30'], ['50', '50'], ['999', 'Без лимита']], String(set.perDay), 'perday')}<p class="field">Цель на день</p>${seg([['0', 'Нет'], ['10', '10'], ['20', '20'], ['30', '30'], ['50', '50']], String(set.goal || 0), 'goal')}</section><section class="card"><h2>Перенос</h2><p class="muted">Файл хранит ваши слова, темы и прогресс. Его можно открыть на другом устройстве.</p><div class="acts"><button type="button" class="btn" data-act="exp">Скачать JSON</button><label class="btn">Загрузить<input id="imp" type="file" accept="application/json,.json" hidden></label></div>${ui.confirmReset ? '<div class="confirm"><span>Стереть прогресс, свои слова и настройки?</span><button type="button" class="btn danger" data-act="reset-yes">Да, стереть</button><button type="button" class="btn" data-act="reset-no">Отмена</button></div>' : '<button type="button" class="btn danger tiny" data-act="reset-ask">Сбросить всё</button>'}</section>`
+  return `<section class="card"><div class="rowtop"><h2>Настройки</h2><button type="button" class="btn tiny" data-act="home">Закрыть</button></div><p class="field">Озвучка</p>${seg([['auto', 'Авто'], ['dict', 'Словарь'], ['system', 'zh-CN']], set.voice, 'voice')}<p class="muted">Авто: голос Xiaoxiao через этот сервер, затем запись Youdao, затем голос zh-CN устройства.</p><p class="field">Скорость</p>${seg(RATES.map(rate => [String(rate), `${String(rate).replace('.', ',')}×`]), String(set.rate), 'rate')}<p class="field">Тема</p>${seg([['auto', 'Авто'], ['light', 'Светлая'], ['dark', 'Тёмная'], ['jade', 'Нефрит'], ['paper', 'Бумага'], ['ink', 'Тушь']], set.theme, 'theme')}<p class="field">Цвета тонов</p>${seg([['0', 'Выкл'], ['1', 'Пиньинь'], ['2', 'Пиньинь и знаки']], String(set.tc), 'tc')}<p class="muted">1-й тон синий, 2-й зелёный, 3-й оранжевый, 4-й фиолетовый.</p><label class="check"><input type="checkbox" data-act="flag" data-k="pyFront"${set.pyFront ? ' checked' : ''}> Пиньинь сразу на лицевой стороне</label><label class="check"><input type="checkbox" data-act="flag" data-k="strict"${set.strict ? ' checked' : ''}> Строго проверять тоны</label><label class="check"><input type="checkbox" data-act="flag" data-k="sayShow"${set.sayShow ? ' checked' : ''}> Показывать иероглифы и пиньинь в произношении</label><p class="field">Новых карточек в день</p>${seg([['10', '10'], ['20', '20'], ['30', '30'], ['50', '50'], ['999', 'Без лимита']], String(set.perDay), 'perday')}<p class="field">Цель на день</p>${seg([['0', 'Нет'], ['10', '10'], ['20', '20'], ['30', '30'], ['50', '50']], String(set.goal || 0), 'goal')}</section><section class="card"><h2>Перенос</h2><p class="muted">Файл хранит ваши слова, темы и прогресс. Его можно открыть на другом устройстве.</p><div class="acts"><button type="button" class="btn" data-act="exp">Скачать JSON</button><label class="btn">Загрузить<input id="imp" type="file" accept="application/json,.json" hidden></label></div>${ui.confirmReset ? '<div class="confirm"><span>Стереть прогресс, свои слова и настройки?</span><button type="button" class="btn danger" data-act="reset-yes">Да, стереть</button><button type="button" class="btn" data-act="reset-no">Отмена</button></div>' : '<button type="button" class="btn danger tiny" data-act="reset-ask">Сбросить всё</button>'}</section>`
 }
 
 export function renderApp(): string {
@@ -581,7 +603,8 @@ export function renderApp(): string {
     : ui.view === 'write' ? writeView()
     : ui.view === 'prog' ? progView()
     : settingsView()
-  return `<div class="app"><header class="top"><div class="brand"><button type="button" class="logo" data-act="home" aria-label="На главный экран"><b>字</b><span><strong>Свои слова</strong><small>v${esc(APP_VERSION)} · иероглифы, чтение, произношение</small></span></button><button type="button" class="icon" data-act="settings" aria-label="Настройки">⚙</button></div>${topicBar()}<nav class="nav" aria-label="Разделы">${TABS.map(([id, label]) => `<button type="button" data-act="tab" data-v="${id}" aria-pressed="${ui.view === id}">${label}</button>`).join('')}</nav></header><main>${main}</main></div>`
+  const studying = ui.view === 'study' && ui.study ? ' study-run' : ''
+  return `<div class="app${studying}"><header class="top"><div class="brand"><button type="button" class="logo" data-act="home" aria-label="На главный экран"><b>字</b><span><strong>Свои слова</strong><small>v${esc(APP_VERSION)} · иероглифы, чтение, произношение</small></span></button><button type="button" class="icon" data-act="settings" aria-label="Настройки">⚙</button></div>${topicBar()}<nav class="nav" aria-label="Разделы">${TABS.map(([id, label]) => `<button type="button" data-act="tab" data-v="${id}" aria-pressed="${ui.view === id}">${label}</button>`).join('')}</nav></header><main>${main}</main></div>`
 }
 
 export function editorFromWord(word: Word): Editor {

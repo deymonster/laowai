@@ -18,12 +18,23 @@ export type Word = {
 
 export type Topic = { id: string; name: string; builtin: boolean }
 
-export type Prog = { b: number; d: number }
+export type CardState = 'new' | 'learn' | 'review' | 'relearn'
+export type Side = 'h2r' | 'r2h'
+
+export type Card = {
+  st: CardState
+  ease: number
+  due: number
+  step: number
+  ivl: number
+}
+
+export type Prog = { b: number; d: number; h2r: Card; r2h: Card }
 
 export type VoiceMode = 'auto' | 'dict' | 'system'
 
 export type Settings = {
-  dir: 'h2r' | 'r2h'
+  dir: 'h2r' | 'r2h' | 'both'
   pyFront: boolean
   strict: boolean
   rate: number
@@ -43,6 +54,7 @@ export type State = {
   my: string[]
   days: Record<string, number>
   nd: [number, number]
+  rd: [number, number]
   lv: string[]
   hsk: number[]
   settings: Settings
